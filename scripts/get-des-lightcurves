@@ -1,0 +1,70 @@
+#!/usr/bin/env python
+"""Get light curves of supernova candidates from DES database.
+"""
+from sys import stdout
+from argparse import ArgumentParser
+import desdb
+import dessn
+
+parser = ArgumentParser(description=__doc__)
+parser.add_argument('dir', help='Target directory for files.')
+
+def main():
+    args = parser.parse_args()
+    conn = desdb.connect()
+
+    q = """
+        SELECT DISTINCT
+            a.snid, b.ra, b.dec, b.cand_type, b.cand_desc
+        FROM
+            snscan a, sncand b
+        WHERE
+            a.snid=b.snid
+            AND b.snfake_id=0
+            AND a.categorytype like '%SN%'
+        ORDER BY
+            a.snid
+        """
+    cands = conn.quick(q)
+    ncands = len(cands)
+
+    print '',
+    for i, cand in enumerate(cands):
+        print '\rsnid={:8d} ({:6d}/{:6d})'.format(cand['snid'], i, ncands),
+        stdout.flush()
+
+        q = """
+            SELECT
+                e.band, e.mjd_obs, f.flux, f.flux_err
+            FROM
+                exposure e, snforce f, image i
+            WHERE
+                f.sncand_id={:d}
+                AND f.status<16
+                AND i.id=f.image_id
+                AND e.id=i.exposureid
+            ORDER BY
+                e.mjd_obs
+            """.format(cand['snid'])
+        data = conn.quick(q, array=True)
+
+        # Add some metadata to cand to conform to SNANA requirements.
+        cand['survey'] = 'DES'
+        cand['filters'] = 'griz'
+        cand['decl'] = cand['dec']
+        del cand['dec']
+        cand['redshift_final'] = '999. +- 99.'
+        cand['mwebv'] = 0.
+
+        # Add zeropoint information to data.
+        snana_data = {'mjd': data['mjd_obs'],
+                      'flt': data['band'],
+                      'fluxcal': data['flux'],
+                      'fluxcalerr': data['flux_err'],
+                      'zpt': len(data) * [31.4]}
+        snana_data = dessn.dict_to_array(snana_data)
+        fname = '{}/des{:07d}.dat'.format(args.dir, cand['snid'])
+        dessn.writelc(cand, snana_data, fname, fmt='snana')
+
+if __name__ == '__main__':
+    main()
