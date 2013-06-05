@@ -1,17 +1,20 @@
-dessn
-=====
+des-sn-tools
+============
 
-DES Supernova-related scripts and utilities
+DES Supernova-related scripts and utilities. This repository is intended for
+stand-alone scripts and modular functionality (such as python modules). When
+adding a script to the `scripts` directory, describe its functionality and
+requirements here.
 
 Scripts
 -------
 * `get-des-lightcurves`: Retrieves light curves of SN candidates from database,
   writes each to a file in chosen directory. Currently only writes in SNANA
-  format.
+  format. [Requires the `dessn` python module. See below.]
 
 
-Python module
--------------
+`dessn` Python module
+---------------------
 
 The python module `dessn` provides stand-alone functions, briefly
 described below. See the function docstrings in the code itself for
@@ -42,12 +45,12 @@ more detailed descriptions and examples.
 * `dessn.dict_to_array()`: Convert dictionary of lists to a numpy array
 
 
-Installation
-------------
+Installation: Python module and python script(s):
+-------------------------------------------------
 
-### Code install
+### Install instructions
 
-Get the source, cd into the directory containing this README, then do
+Do
 
     python setup.py install --user
 
