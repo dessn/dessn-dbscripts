@@ -5,6 +5,7 @@ DES Supernova-related scripts and utilities. This repository is intended for
 stand-alone scripts and modular functionality (such as python modules). When
 adding a script to the `scripts` directory, describe its functionality and
 requirements here.
+checking changes on redmine repository
 
 Scripts
 -------
