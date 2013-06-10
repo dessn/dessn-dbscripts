@@ -8,9 +8,12 @@ requirements here.
 
 Scripts
 -------
+
+These scripts are run from the command line. The 
+
 * `get-des-lightcurves`: Retrieves light curves of SN candidates from database,
   writes each to a file in chosen directory. Currently only writes in SNANA
-  format. [Requires the `dessn` python module. See below.]
+  format. [Requires the `desdb` and the `dessn` python modules. See below.]
 
 
 `dessn` Python module
@@ -24,8 +27,8 @@ more detailed descriptions and examples.
 
 * `dessn.read_rk()`: Read text files like those produced by fakeMatch and
   filterObj into dictionaries or numpy arrays.
-  _("rk" is for Rick Kessler, who I think originated this format.
-  Let me know if there is a better name for it.)_
+  _("rk" is for Rick Kessler, who I think invented this format.
+  Is there a better name for this?)_
 * `dessn.read_rk_multi()`: Like above, but read from multiple similar files
   and glue results together into big tables.
 * `dessn.writelc()`: Write light curve data to a file of the given format.
@@ -38,7 +41,8 @@ more detailed descriptions and examples.
   same name in astropy.stats. See
   [documentation in astropy.stats](http://astropy.readthedocs.org/en/latest/_generated/astropy.stats.funcs.binned_binom_proportion.html)
   for nicely HTML-formatted description.
-* `dessn.binom_conf_interval()`: Binomial confidence interval on underlying probability, given n trials and k successes. Used in above function.
+* `dessn.binom_conf_interval()`: Binomial confidence interval on underlying
+  probability, given n trials and k successes. Used in above function.
 
 ### General utilities
 
@@ -52,10 +56,15 @@ Installation: Python module and python script(s):
 
 Do
 
+    python setup.py install
+
+or
+
     python setup.py install --user
 
-This should make the python module available and install the scripts
-in your path.
+This should make the python module available and install any python scripts
+in your path. For other scripts, you may have to copy them to some directory
+in your path by hand.
 
 Alternatively, you can add the `scripts` directory to your $PATH, and
 add the base repository directory to your $PYTHONPATH.
@@ -69,8 +78,8 @@ add the base repository directory to your $PYTHONPATH.
 * [desdb](https://github.com/esheldon/desdb)
   (only needed for db interactions)
 
-desdb is used for its handling of database usernames and passwords so that
-this information can be external to the source code.
+Note: The `desdb` package is used for its handling of database usernames
+and passwords so that this information can be external to the source code.
 
 ### Note
 
