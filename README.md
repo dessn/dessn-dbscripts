@@ -15,6 +15,10 @@ These scripts are run from the command line. The
   writes each to a file in chosen directory. Currently only writes in SNANA
   format. [Requires the `desdb` and the `dessn` python modules. See below.]
 
+* GPS_cronjob_forSuominet.pl :  cronjob to prepare GPS files for Suominet
+   to measure precipitable water vapor (PWV). See top of script for
+   usage instructions.
+
 
 `dessn` Python module
 ---------------------
