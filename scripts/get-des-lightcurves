@@ -3,14 +3,37 @@
 """
 from sys import stdout
 from argparse import ArgumentParser
-import desdb
-import dessn
+try:
+    import cx_Oracle
+except:
+    print ("This script requires the cx_Oracle python package. "
+           "Follow instructions at\n"
+           "https://github.com/esheldon/desdb#dependencies\n"
+           "exiting...")
+    exit()
+try:
+    import desdb
+except:
+    print ("This script requires the desdb package:\n"
+           "https://github.com/esheldon/desdb\n"
+           "exiting...")
+    exit()
+try:
+    import dessn
+except:
+    print "The dessn module must be installed or in $PYTHONPATH."
+    exit()
+
 
 parser = ArgumentParser(description=__doc__)
-parser.add_argument('dir', help='Target directory for files.')
+parser.add_argument('dir', help='Existing target directory for files.')
 
 def main():
     args = parser.parse_args()
+    if not os.path.exists(args.dir):
+        print "dir must be an existing directory"
+        exit()
+
     conn = desdb.connect()
 
     q = """
