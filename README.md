@@ -74,7 +74,9 @@ add the base repository directory to your $PYTHONPATH.
 * Python 2.7
 * NumPy
 * SciPy (but only needed for stats functions)
-* cx_Oracle (only needed for db interactions)
+* cx_Oracle (only needed for db interactions):
+  http://cx-oracle.sourceforge.net
+  https://pypi.python.org/pypi/cx_Oracle
 * [desdb](https://github.com/esheldon/desdb)
   (only needed for db interactions)
 
