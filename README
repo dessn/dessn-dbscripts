@@ -1,0 +1,24 @@
+des-sn-tools
+============
+
+DES Supernova-related scripts and utilities. This repository is intended for
+stand-alone scripts and modular functionality (such as python modules), as
+well as small DES-specific tools with external dependencies. The top-level
+directories are briefly described here. For more information see the README
+in each directory.
+
+genFake
+-------
+Constains script to generate fakes for doFake in the diffim pipeline, using
+SNANA. Depends on SNANA and is specific to running at Fermilab.
+
+gps
+---
+Contains script to prepare GPS files for Suominet to measure precipitable
+water vapor (PWV). Specific to running on Fermilab DES machines.
+
+python
+------
+Contains a python module `dessn` with random DES-related functionality, and a
+script `get-des-lightcurves` for downloading lightcurves from the database.
+Depends on Python 2.7, and the NumPy, cx_Oracle and desdb packages.

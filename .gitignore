@@ -1,5 +1,9 @@
+# compiled python files
 *.py[cod]
+
+# emacs backup files
 *~
+
 # C extensions
 *.so
 
