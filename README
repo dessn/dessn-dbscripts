@@ -21,4 +21,4 @@ python
 ------
 Contains a python module `dessn` with random DES-related functionality, and a
 script `get-des-lightcurves` for downloading lightcurves from the database.
-Depends on Python 2.7, and the NumPy, cx_Oracle and desdb packages.
+Depends on the NumPy, cx_Oracle and desdb packages.

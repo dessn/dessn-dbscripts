@@ -1,8 +1,10 @@
 #!/usr/bin/env python
-"""Get light curves of supernova candidates from DES database.
+"""
+    %prog [options] DIR
+
+Get light curves of supernova candidates from DES database.
 """
 from sys import stdout
-from argparse import ArgumentParser
 try:
     import cx_Oracle
 except:
@@ -24,14 +26,19 @@ except:
     print "The dessn module must be installed or in $PYTHONPATH."
     exit()
 
-
-parser = ArgumentParser(description=__doc__)
-parser.add_argument('dir', help='Existing target directory for files.')
+from optparse import OptionParser
 
 def main():
-    args = parser.parse_args()
-    if not os.path.exists(args.dir):
-        print "dir must be an existing directory"
+
+    parser = OptionParser(description=__doc__)
+    opts, args = parser.parse_args(sys.argv[1:])
+    if len(args) < 1:
+        parser.print_help()
+        sys.exit(45)
+
+    outdir = args[0]
+    if not os.path.exists(outdir):
+        print "DIR must be an existing directory"
         exit()
 
     conn = desdb.connect()
@@ -53,7 +60,7 @@ def main():
 
     print '',
     for i, cand in enumerate(cands):
-        print '\rsnid={:8d} ({:6d}/{:6d})'.format(cand['snid'], i, ncands),
+        print '\rsnid={:8d} ({:6d}/{:6d})'.format(cand['snid'], i+1, ncands),
         stdout.flush()
 
         q = """
@@ -86,7 +93,7 @@ def main():
                       'fluxcalerr': data['flux_err'],
                       'zpt': len(data) * [31.4]}
         snana_data = dessn.dict_to_array(snana_data)
-        fname = '{}/des{:07d}.dat'.format(args.dir, cand['snid'])
+        fname = '{}/des{:07d}.dat'.format(outdir, cand['snid'])
         dessn.writelc(cand, snana_data, fname, fmt='snana')
 
 if __name__ == '__main__':

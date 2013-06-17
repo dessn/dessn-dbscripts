@@ -1,4 +1,7 @@
-from collections import OrderedDict
+try:
+    from collections import OrderedDict as odict
+except ImportError:
+    odict = dict
 import numpy as np
 
 __all__ = ['dict_to_array', 'read_rk', 'read_rk_multi', 'writelc']
@@ -39,7 +42,7 @@ def read_rk(fname, array=True):
 
     Returns
     -------
-    meta : OrderedDict
+    meta : dict
         Metadata.
     tables : dictionary of multiple `numpy.ndarray`s or dictionaries.
         The data.
@@ -82,7 +85,7 @@ def read_rk(fname, array=True):
 
     """
 
-    meta = OrderedDict() # initialize structure to hold metadata.
+    meta = odict() # initialize structure to hold metadata.
     tables = {} # initialize structure to hold data.
 
     infile = open(fname, 'r')
@@ -106,7 +109,7 @@ def read_rk(fname, array=True):
                 raise ValueError('table name must be given as part of '
                                  'NVAR keyword so that rows belonging to '
                                  'this table can be identified')
-            table = OrderedDict()
+            table = odict()
             tables[tablename] = table
 
             i += 2

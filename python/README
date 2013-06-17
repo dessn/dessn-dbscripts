@@ -48,11 +48,11 @@ Installation
 
 Do
 
-    setup.py install
+    setup.py install  # as root
 
 or
 
-    setup.py install --user
+    setup.py install --user  # as yourself
 
 This should make the python module available and install any python scripts
 in your path.
@@ -62,7 +62,6 @@ add the base repository directory to your $PYTHONPATH.
  
 ### Dependencies
 
-* Python 2.7
 * NumPy
 * SciPy (but only needed for stats functions)
 * cx_Oracle (only needed for db interactions):
@@ -74,6 +73,3 @@ add the base repository directory to your $PYTHONPATH.
 Note: The `desdb` package is used for its handling of database usernames
 and passwords so that this information can be external to the source code.
 
-### Note
-
-If anyone is constrained to Python 2.6 or before, we can arrange support for it.
