@@ -23,8 +23,10 @@ more detailed descriptions and examples.
   Is there a better name for this?)_
 * `dessn.read_rk_multi()`: Like above, but read from multiple similar files
   and glue results together into big tables.
-* `dessn.writelc()`: Write light curve data to a file of the given format.
-  Currently only SNANA supported.
+* `dessn.readlc()`: Read light curve data from a file of the given format:
+  csv, salt2 supported. See docstring for details.
+* `dessn.writelc()`: Write light curve data to a file of the given format:
+  csv, salt2, snana supported. See docstring for details.
 
 ### Statistics
 

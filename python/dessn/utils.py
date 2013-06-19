@@ -4,7 +4,7 @@ except ImportError:
     odict = dict
 import numpy as np
 
-__all__ = ['dict_to_array', 'read_rk', 'read_rk_multi', 'writelc']
+__all__ = ['dict_to_array', 'read_rk', 'read_rk_multi']
 
 def dict_to_array(d):
     """Convert a dictionary of lists (of equal length) to a numpy array."""
@@ -227,51 +227,3 @@ def read_rk_multi(fnames, array=True):
             compiled_tables[key] = dict_to_array(compiled_tables[key])
 
     return compiled_tables
-
-def writelc(meta, data, fname, usecols=None, varlist=None, fmt='snana'):
-    """Write light curve data to a file.
-
-    Parameters
-    ----------
-    meta : dict
-        Keys converted to uppercase in output file.
-    data : numpy array
-        Data array. 
-    fname : str
-        Name of output file.
-    usecols : list, optional
-        Names of columns in `data` to use. Others will be ignored. Default is
-        to use all columns present.
-    varlist: list, optional
-        Names of columns as they should appear in file. Length must match
-        number of columns in data, or length of `usecols`, if specified.
-        Default is to use the names directly from the numpy array. Names
-        are always converted to uppercase.
-    """
-
-    if usecols is None:
-        colnames = data.dtype.names
-    else:
-        colnames = usecols
-
-    nvar = len(colnames)
-    if varlist is None:
-        varlist = [colname.upper() for colname in colnames]
-    elif len(varlist) != nvar:
-        raise ValueError('length of varlist must match number of columns'
-                         ' in table')
-
-    outfile = open(fname, 'w')
-    for key, val in meta.iteritems():
-        outfile.write('{}: {}\n'.format(key.upper(), str(val)))
-    outfile.write('\n'
-                  '# ==========================================\n'
-                  '# TERSE LIGHT CURVE OUTPUT:\n'
-                  '#\n'
-                  'NOBS: {:d}\n'
-                  'NVAR: {:d}\n'
-                  'VARLIST: {}\n'.format(len(data), nvar, ' '.join(varlist)))
-    for i in range(len(data)):
-        row = [str(data[col][i]) for col in colnames]
-        outfile.write('OBS: {}\n'.format(' '.join(row)))
-    outfile.close()

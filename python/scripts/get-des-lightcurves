@@ -1,10 +1,14 @@
 #!/usr/bin/env python
 """
-    %prog [options] DIR
-
 Get light curves of supernova candidates from DES database.
 """
+import sys
+import os
 from sys import stdout
+try:
+    from collections import OrderedDict as odict
+except ImportError:
+    odict = dict
 try:
     import cx_Oracle
 except:
@@ -30,7 +34,12 @@ from optparse import OptionParser
 
 def main():
 
-    parser = OptionParser(description=__doc__)
+    parser = OptionParser(usage='%prog [options] DIR',
+                          description=__doc__)
+    parser.add_option("-f", "--format", default='csv',
+                      help=("File format for output. Options: "
+                            "csv, salt2, snana."))
+
     opts, args = parser.parse_args(sys.argv[1:])
     if len(args) < 1:
         parser.print_help()
@@ -81,20 +90,19 @@ def main():
         # Add some metadata to cand to conform to SNANA requirements.
         cand['survey'] = 'DES'
         cand['filters'] = 'griz'
-        cand['decl'] = cand['dec']
-        del cand['dec']
         cand['redshift_final'] = '999. +- 99.'
         cand['mwebv'] = 0.
 
         # Add zeropoint information to data.
-        snana_data = {'mjd': data['mjd_obs'],
-                      'flt': data['band'],
-                      'fluxcal': data['flux'],
-                      'fluxcalerr': data['flux_err'],
-                      'zpt': len(data) * [31.4]}
-        snana_data = dessn.dict_to_array(snana_data)
+        data = odict([('mjd', data['mjd_obs']),
+                      ('band', data['band']),
+                      ('flux', data['flux']),
+                      ('fluxerr', data['flux_err']),
+                      ('zp', len(data) * [31.4]),
+                      ('zpsys', len(data) * ['ab'])])
+        data = dessn.dict_to_array(data)
         fname = '{}/des{:07d}.dat'.format(outdir, cand['snid'])
-        dessn.writelc(cand, snana_data, fname, fmt='snana')
+        dessn.writelc(data, fname, meta=cand, fmt=opts.format)
 
 if __name__ == '__main__':
     main()
