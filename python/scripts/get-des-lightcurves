@@ -36,19 +36,41 @@ def main():
 
     parser = OptionParser(usage='%prog [options] DIR',
                           description=__doc__)
+    parser.add_option("-n", type="int", default=0,
+                      help="maximum number of light curves to get. Default is"
+                      " to get all light curves.")
     parser.add_option("-f", "--format", default='csv',
-                      help=("File format for output. Options: "
-                            "csv, salt2, snana."))
+                      help="File format for output. Options: "
+                      "csv, salt2, snana. Default: csv.")
+    parser.add_option("-b", "--bandnames", default='g,r,i,z',
+                      help="Comma-separated list of names of the DES "
+                      "g, r, i, z bands, as they should appear in the "
+                      "output files. Example: desg,desr,desi,desz. Default: "
+                      "g,r,i,z.")
 
     opts, args = parser.parse_args(sys.argv[1:])
     if len(args) < 1:
         parser.print_help()
-        sys.exit(45)
+        sys.exit(1)
 
     outdir = args[0]
     if not os.path.exists(outdir):
         print "DIR must be an existing directory"
-        exit()
+        sys.exit(1)
+
+    if opts.format not in ['csv', 'snana', 'salt2']:
+        print "Format must be one of: csv, snana, salt2."
+        sys.exit(1)
+
+    if opts.bandnames != 'g,r,i,z':
+        names = opts.bandnames.split(',')
+        if len(names) != 4:
+            print "bandnames must have 4 comma-separated elements"
+            sys.exit(1)
+        bandnames = {'g': names[0], 'r': names[1], 'i': names[2],
+                     'z': names[3]}
+    else:
+        bandnames = None
 
     conn = desdb.connect()
 
@@ -66,9 +88,14 @@ def main():
         """
     cands = conn.quick(q)
     ncands = len(cands)
+    if opts.n > 0:
+        maxn = opts.n
+    else:
+        maxn = ncands
 
     print '',
-    for i, cand in enumerate(cands):
+    for i in range(maxn):
+        cand = cands[i]
         print '\rsnid={:8d} ({:6d}/{:6d})'.format(cand['snid'], i+1, ncands),
         stdout.flush()
 
@@ -87,20 +114,30 @@ def main():
             """.format(cand['snid'])
         data = conn.quick(q, array=True)
 
-        # Add some metadata to cand to conform to SNANA requirements.
-        cand['survey'] = 'DES'
-        cand['filters'] = 'griz'
-        cand['redshift_final'] = '999. +- 99.'
-        cand['mwebv'] = 0.
+        # Convert band names, if requested.
+        if bandnames is None:
+            band = data['band']
+        if bandnames is not None:
+            band = []
+            for b in data['band']:
+                band.append(bandnames[b])
 
         # Add zeropoint information to data.
-        data = odict([('mjd', data['mjd_obs']),
-                      ('band', data['band']),
+        data = odict([('time', data['mjd_obs']),
+                      ('band', band),
                       ('flux', data['flux']),
                       ('fluxerr', data['flux_err']),
                       ('zp', len(data) * [31.4]),
                       ('zpsys', len(data) * ['ab'])])
         data = dessn.dict_to_array(data)
+
+        # Add some metadata to 'cand' to conform to requirements
+        if opts.format == 'snana':
+            cand['survey'] = 'DES'
+            cand['filters'] = 'griz'
+            cand['redshift_final'] = '999. +- 99.'
+            cand['mwebv'] = 0.
+
         fname = '{}/des{:07d}.dat'.format(outdir, cand['snid'])
         dessn.writelc(data, fname, meta=cand, fmt=opts.format)
 
