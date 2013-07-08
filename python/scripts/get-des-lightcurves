@@ -34,11 +34,11 @@ from optparse import OptionParser
 
 def main():
 
-    parser = OptionParser(usage='%prog [options] DIR',
+    parser = OptionParser(usage='%prog [options] [SNID [SNID ...]]',
                           description=__doc__)
     parser.add_option("-n", type="int", default=0,
                       help="maximum number of light curves to get. Default is"
-                      " to get all light curves.")
+                      " to get all the light curves.")
     parser.add_option("-f", "--format", default='csv',
                       help="File format for output. Options: "
                       "csv, salt2, snana. Default: csv.")
@@ -47,13 +47,15 @@ def main():
                       "g, r, i, z bands, as they should appear in the "
                       "output files. Example: desg,desr,desi,desz. Default: "
                       "g,r,i,z.")
+    parser.add_option("-o", "--outputdir", default='.',
+                      help="Output directory. Default is current directory.")
+    parser.add_option("-c", "--clobber", default=False, action='store_true',
+                      help="Overwrite (refetch) existing files.")
 
     opts, args = parser.parse_args(sys.argv[1:])
-    if len(args) < 1:
-        parser.print_help()
-        sys.exit(1)
-
-    outdir = args[0]
+    snids = args
+    
+    outdir = opts.outputdir
     if not os.path.exists(outdir):
         print "DIR must be an existing directory"
         sys.exit(1)
@@ -74,6 +76,7 @@ def main():
 
     conn = desdb.connect()
 
+    # Get candidate info from database.
     q = """
         SELECT DISTINCT
             a.snid, b.ra, b.dec, b.cand_type, b.cand_desc
@@ -83,10 +86,15 @@ def main():
             a.snid=b.snid
             AND b.snfake_id=0
             AND a.categorytype like '%SN%'
-        ORDER BY
-            a.snid
         """
+    if len(snids) > 0:
+        q += "AND b.snid in (" + ", ".join(snids) + ")"
+    q += """
+         ORDER BY
+             a.snid
+         """
     cands = conn.quick(q)
+        
     ncands = len(cands)
     if opts.n > 0:
         maxn = opts.n
@@ -95,7 +103,12 @@ def main():
 
     print '',
     for i in range(maxn):
+
         cand = cands[i]
+        fname = '{}/des{:07d}.dat'.format(outdir, cand['snid'])
+        if not opts.clobber and os.path.exists(fname):
+            continue
+
         print '\rsnid={:8d} ({:6d}/{:6d})'.format(cand['snid'], i+1, ncands),
         stdout.flush()
 
@@ -138,7 +151,6 @@ def main():
             cand['redshift_final'] = '999. +- 99.'
             cand['mwebv'] = 0.
 
-        fname = '{}/des{:07d}.dat'.format(outdir, cand['snid'])
         dessn.writelc(data, fname, meta=cand, fmt=opts.format)
 
 if __name__ == '__main__':
