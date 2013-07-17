@@ -1,10 +1,15 @@
 #!/usr/bin/env python
 """
 Get light curves of supernova candidates from DES database.
+
+By default the light curves are retrieved from the SNFORCE table by candidate
+ID. 
 """
 import sys
 import os
 from sys import stdout
+import math
+import numpy as np
 try:
     from collections import OrderedDict as odict
 except ImportError:
@@ -37,8 +42,15 @@ def main():
     parser = OptionParser(usage='%prog [options] [SNID [SNID ...]]',
                           description=__doc__)
     parser.add_option("-n", type="int", default=0,
-                      help="maximum number of light curves to get. Default is"
+                      help="Maximum number of light curves to get. Default is"
                       " to get all the light curves.")
+    parser.add_option("-a", "--all", default=False, action="store_true",
+                      help="Get all candidates, regardless of cand_type. "
+                      "Default is to get only candidates that have "
+                      "cand_type=0 (indicating current, good).")
+    parser.add_option("-t", "--table", default='snforce',
+                      help="Table from which to retrieve photometry points. "
+                      "Options: snobs, snforce (default: snforce)")
     parser.add_option("-f", "--format", default='csv',
                       help="File format for output. Options: "
                       "csv, salt2, snana. Default: csv.")
@@ -47,6 +59,9 @@ def main():
                       "g, r, i, z bands, as they should appear in the "
                       "output files. Example: desg,desr,desi,desz. Default: "
                       "g,r,i,z.")
+    parser.add_option("--no-ebv", default=False, action='store_true',
+                      help="Do not query IRSA for E(B-V) dust value. Default "
+                      "is to run query and add info to header.")
     parser.add_option("-o", "--outputdir", default='.',
                       help="Output directory. Default is current directory.")
     parser.add_option("-c", "--clobber", default=False, action='store_true',
@@ -58,6 +73,10 @@ def main():
     outdir = opts.outputdir
     if not os.path.exists(outdir):
         print "DIR must be an existing directory"
+        sys.exit(1)
+
+    if opts.table not in ['snforce', 'snobs']:
+        print "Table must be one of: snforce, snobs"
         sys.exit(1)
 
     if opts.format not in ['csv', 'snana', 'salt2']:
@@ -87,8 +106,13 @@ def main():
             AND b.snfake_id=0
             AND a.categorytype like '%SN%'
         """
+
+    if not opts.all:
+        q += "AND b.cand_type=0 \n"
+
     if len(snids) > 0:
         q += "AND b.snid in (" + ", ".join(snids) + ")"
+
     q += """
          ORDER BY
              a.snid
@@ -105,14 +129,15 @@ def main():
     for i in range(maxn):
 
         cand = cands[i]
-        fname = '{}/des{:07d}.dat'.format(outdir, cand['snid'])
+        fname = '{}/des{:08d}.dat'.format(outdir, cand['snid'])
         if not opts.clobber and os.path.exists(fname):
             continue
 
         print '\rsnid={:8d} ({:6d}/{:6d})'.format(cand['snid'], i+1, ncands),
         stdout.flush()
 
-        q = """
+        if opts.table == 'snforce':
+            q = """
             SELECT
                 e.band, e.mjd_obs, f.flux, f.flux_err
             FROM
@@ -125,6 +150,29 @@ def main():
             ORDER BY
                 e.mjd_obs
             """.format(cand['snid'])
+
+        elif opts.table == 'snobs':
+            q = """
+            SELECT
+                e.band, e.mjd_obs, o.flux, o.flux_err, o.mag
+            FROM
+                exposure e, snobs o
+            WHERE
+                o.ra between {:f} and {:f}
+                AND o.dec between {:f} and {:f}
+                AND o.status=0
+                AND o.exposureid=e.expnum
+            ORDER BY
+                e.mjd_obs
+            """
+
+            boxrad = 1.08 / 3600.
+            ra = cand['ra']
+            dec = cand['dec']
+            dra = boxrad + math.cos(dec * math.pi/180.)
+            ddec = boxrad
+            q = q.format(ra - dra, ra + dra, dec - ddec, dec + ddec)
+ 
         data = conn.quick(q, array=True)
 
         # Convert band names, if requested.
@@ -135,21 +183,31 @@ def main():
             for b in data['band']:
                 band.append(bandnames[b])
 
-        # Add zeropoint information to data.
+        # Add zeropoint information
+        if opts.table == 'snforce':
+            zp = len(data) * [31.4]
+
+        elif opts.table == 'snobs':
+            zp = data['mag'] + 2.5 * np.log10(data['flux'])
+
         data = odict([('time', data['mjd_obs']),
                       ('band', band),
                       ('flux', data['flux']),
                       ('fluxerr', data['flux_err']),
-                      ('zp', len(data) * [31.4]),
+                      ('zp', zp),
                       ('zpsys', len(data) * ['ab'])])
         data = dessn.dict_to_array(data)
+
+        # add E(B-V) info (this query takes about 0.5 seconds)
+        if not opts.no_ebv:
+            cand['mwebv'] = dessn.mwdust(cand['ra'], cand['dec'])
 
         # Add some metadata to 'cand' to conform to requirements
         if opts.format == 'snana':
             cand['survey'] = 'DES'
             cand['filters'] = 'griz'
             cand['redshift_final'] = '999. +- 99.'
-            cand['mwebv'] = 0.
+            if 'mwebv' not in cand: cand['mwebv'] = 0.
 
         dessn.writelc(data, fname, meta=cand, fmt=opts.format)
 
