@@ -7,8 +7,9 @@ ID.
 """
 import sys
 import os
-from sys import stdout
+import glob
 import math
+from datetime import datetime
 import numpy as np
 try:
     from collections import OrderedDict as odict
@@ -59,6 +60,10 @@ def main():
                       "g, r, i, z bands, as they should appear in the "
                       "output files. Example: desg,desr,desi,desz. Default: "
                       "g,r,i,z.")
+    parser.add_option("--snana-version", default='',
+                      help="Create extra files for SNANA (*.README, *.LIST, "
+                      "*.IGNORE) with this prefix. Default is to not create "
+                      "files.")
     parser.add_option("--no-ebv", default=False, action='store_true',
                       help="Do not query IRSA for E(B-V) dust value. Default "
                       "is to run query and add info to header.")
@@ -66,6 +71,8 @@ def main():
                       help="Output directory. Default is current directory.")
     parser.add_option("-c", "--clobber", default=False, action='store_true',
                       help="Overwrite (refetch) existing files.")
+    parser.add_option("-v", "--verbose", default=False, action='store_true',
+                      help="Print query string.")
 
     opts, args = parser.parse_args(sys.argv[1:])
     snids = args
@@ -74,6 +81,7 @@ def main():
     if not os.path.exists(outdir):
         print "DIR must be an existing directory"
         sys.exit(1)
+    outdir = outdir.rstrip('/')
 
     if opts.table not in ['snforce', 'snobs']:
         print "Table must be one of: snforce, snobs"
@@ -134,12 +142,13 @@ def main():
             continue
 
         print '\rsnid={:8d} ({:6d}/{:6d})'.format(cand['snid'], i+1, ncands),
-        stdout.flush()
+        sys.stdout.flush()
 
         if opts.table == 'snforce':
             q = """
             SELECT
-                e.band, e.mjd_obs, f.flux, f.flux_err
+                substr(e.object, 22, 2) field, e.band, e.mjd_obs, f.flux,
+                f.flux_err
             FROM
                 exposure e, snforce f, image i
             WHERE
@@ -154,7 +163,8 @@ def main():
         elif opts.table == 'snobs':
             q = """
             SELECT
-                e.band, e.mjd_obs, o.flux, o.flux_err, o.mag
+                substr(e.object, 22, 2) field, e.band, e.mjd_obs, o.flux,
+                o.flux_err, o.mag
             FROM
                 exposure e, snobs o
             WHERE
@@ -169,10 +179,12 @@ def main():
             boxrad = 1.08 / 3600.
             ra = cand['ra']
             dec = cand['dec']
-            dra = boxrad + math.cos(dec * math.pi/180.)
+            dra = boxrad * math.cos(dec * math.pi/180.)
             ddec = boxrad
             q = q.format(ra - dra, ra + dra, dec - ddec, dec + ddec)
  
+        if opts.verbose:
+            print q
         data = conn.quick(q, array=True)
 
         # Convert band names, if requested.
@@ -191,6 +203,7 @@ def main():
             zp = data['mag'] + 2.5 * np.log10(data['flux'])
 
         data = odict([('time', data['mjd_obs']),
+                      ('field', data['field']),
                       ('band', band),
                       ('flux', data['flux']),
                       ('fluxerr', data['flux_err']),
@@ -210,6 +223,31 @@ def main():
             if 'mwebv' not in cand: cand['mwebv'] = 0.
 
         dessn.writelc(data, fname, meta=cand, fmt=opts.format)
+
+    if opts.format == 'snana' and opts.snana_version != '':
+
+        #find all existing files.
+        fnames = glob.glob(os.path.join(outdir, 'des????????.dat'))
+
+        # list data files in *.LIST file.
+        fname_list = os.path.join(outdir, opts.snana_version + '.LIST')
+        with open(fname_list, 'w') as f:
+            for fname in fnames:
+                f.write(os.path.basename(fname))
+                f.write('\n')
+
+        # list nothing in *.IGNORE file
+        fname_ignore = os.path.join(outdir, opts.snana_version + '.IGNORE')
+        f = open(fname_ignore, 'w')
+        f.close()
+
+        # list user/time in *.README
+        fname_readme = os.path.join(outdir, opts.snana_version + '.README')
+        with open(fname_readme, 'w') as f:
+            f.write('download user = {:s}\n'.format(os.environ['USER']))
+            now = datetime.now()
+            now_prettystr = now.strftime('%Y-%m-%d %H:%M:%S')
+            f.write('download time = {:s}\n'.format(now_prettystr))
 
 if __name__ == '__main__':
     main()
