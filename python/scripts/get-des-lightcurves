@@ -1,9 +1,14 @@
 #!/usr/bin/env python
-"""
-Get light curves of supernova candidates from DES database.
+"""Get light curves of supernova candidates from DES database.
 
-By default the light curves are retrieved from the SNFORCE table by candidate
-ID. 
+By default, the light curves are retrieved from the SNFORCE table, with
+a query on SNCAND_ID. This behavior can be changed using the --table
+flag. For the SNOBS table, the query is based on RA and DEC (within a
+box of radius 1.08 arcsec). Note that the 'status' fields in the
+SNFORCE and SNOBS tables have different meanings.  If no SNIDs are
+given, all candidates with categorytype like "%SN%" in the SNSCAN
+table are retrieved. Otherwise, only candidates with the given SNIDs
+are retrieved (regardless of whether they are in the SNSCAN table).
 """
 import sys
 import os
@@ -40,7 +45,7 @@ from optparse import OptionParser
 
 def main():
 
-    parser = OptionParser(usage='%prog [options] [SNID [SNID ...]]',
+    parser = OptionParser(usage='%prog [options] [SNID ...]',
                           description=__doc__)
     parser.add_option("-n", type="int", default=0,
                       help="Maximum number of light curves to get. Default is"
@@ -54,25 +59,21 @@ def main():
                       "Options: snobs, snforce (default: snforce)")
     parser.add_option("-f", "--format", default='csv',
                       help="File format for output. Options: "
-                      "csv, salt2, snana. Default: csv.")
+                      "csv [default], json, fits, salt2, snana. Note: "
+                      "The 'snana' format "
+                      "is really only 'snana-ish': Additional metadata are "
+                      "required in the files for snana to actually run.")
     parser.add_option("-b", "--bandnames", default='g,r,i,z',
                       help="Comma-separated list of names of the DES "
                       "g, r, i, z bands, as they should appear in the "
                       "output files. Example: desg,desr,desi,desz. Default: "
                       "g,r,i,z.")
-    parser.add_option("--snana-version", default='',
-                      help="Create extra files for SNANA (*.README, *.LIST, "
-                      "*.IGNORE) with this prefix. Default is to not create "
-                      "files.")
-    parser.add_option("--no-ebv", default=False, action='store_true',
-                      help="Do not query IRSA for E(B-V) dust value. Default "
-                      "is to run query and add info to header.")
     parser.add_option("-o", "--outputdir", default='.',
                       help="Output directory. Default is current directory.")
     parser.add_option("-c", "--clobber", default=False, action='store_true',
                       help="Overwrite (refetch) existing files.")
     parser.add_option("-v", "--verbose", default=False, action='store_true',
-                      help="Print query string.")
+                      help="Print query string for all queries.")
 
     opts, args = parser.parse_args(sys.argv[1:])
     snids = args
@@ -87,9 +88,11 @@ def main():
         print "Table must be one of: snforce, snobs"
         sys.exit(1)
 
-    if opts.format not in ['csv', 'snana', 'salt2']:
+    if opts.format not in ['csv', 'snana', 'salt2', 'fits', 'json']:
         print "Format must be one of: csv, snana, salt2."
         sys.exit(1)
+    suffix = {'csv': 'dat', 'snana': 'dat', 'salt2': 'dat', 'fits': 'fits',
+              'json': 'json'}[opts.format]
 
     if opts.bandnames != 'g,r,i,z':
         names = opts.bandnames.split(',')
@@ -104,27 +107,38 @@ def main():
     conn = desdb.connect()
 
     # Get candidate info from database.
-    q = """
+    # If specific ids are NOT given, get everything marked as "SN"
+    # in the snscan table.
+    if len(snids) == 0:
+        q = """
         SELECT DISTINCT
-            a.snid, b.ra, b.dec, b.cand_type, b.cand_desc
+            a.snid, a.ra, a.dec, a.cand_type, a.cand_desc
         FROM
-            snscan a, sncand b
+            sncand a, snscan b
         WHERE
             a.snid=b.snid
-            AND b.snfake_id=0
-            AND a.categorytype like '%SN%'
+            AND a.snfake_id=0
+            AND b.categorytype like '%SN%'
         """
+        if not opts.all:
+            q += "            AND a.cand_type=0\n"
+        q += "        ORDER BY a.snid"
 
-    if not opts.all:
-        q += "AND b.cand_type=0 \n"
+    else:
+        q = """
+        SELECT
+            snid, ra, dec, cand_type, cand_desc
+        FROM
+            sncand
+        WHERE
+            snfake_id=0
+            AND snid in (""" + ", ".join(snids) + ")\n"
+        q += "        ORDER BY snid"
 
-    if len(snids) > 0:
-        q += "AND b.snid in (" + ", ".join(snids) + ")"
+    if opts.verbose:
+        print "CANDIDATE QUERY:"
+        print q + "\n"
 
-    q += """
-         ORDER BY
-             a.snid
-         """
     cands = conn.quick(q)
         
     ncands = len(cands)
@@ -137,7 +151,7 @@ def main():
     for i in range(maxn):
 
         cand = cands[i]
-        fname = '{}/des{:08d}.dat'.format(outdir, cand['snid'])
+        fname = '{}/des{:08d}.{}'.format(outdir, cand['snid'], suffix)
         if not opts.clobber and os.path.exists(fname):
             continue
 
@@ -148,12 +162,11 @@ def main():
             q = """
             SELECT
                 substr(e.object, 22, 2) field, e.band, e.mjd_obs, f.flux,
-                f.flux_err
+                f.flux_err, f.status
             FROM
                 exposure e, snforce f, image i
             WHERE
                 f.sncand_id={:d}
-                AND f.status<16
                 AND i.id=f.image_id
                 AND e.id=i.exposureid
             ORDER BY
@@ -164,7 +177,7 @@ def main():
             q = """
             SELECT
                 substr(e.object, 22, 2) field, e.band, e.mjd_obs, o.flux,
-                o.flux_err, o.mag
+                o.flux_err, o.mag, o.status
             FROM
                 exposure e, snobs o
             WHERE
@@ -197,8 +210,7 @@ def main():
 
         # Add zeropoint information
         if opts.table == 'snforce':
-            zp = len(data) * [31.4]
-
+            zp = 31.4
         elif opts.table == 'snobs':
             zp = data['mag'] + 2.5 * np.log10(data['flux'])
 
@@ -208,46 +220,30 @@ def main():
                       ('flux', data['flux']),
                       ('fluxerr', data['flux_err']),
                       ('zp', zp),
-                      ('zpsys', len(data) * ['ab'])])
-        data = dessn.dict_to_array(data)
+                      ('zpsys', 'ab'),
+                      ('status', data['status'])])
 
-        # add E(B-V) info (this query takes about 0.5 seconds)
-        if not opts.no_ebv:
-            cand['mwebv'] = dessn.mwdust(cand['ra'], cand['dec'])
+        # Shorten some keywords, for fits format
+        if opts.format == 'fits':
+            cand['candtype'] = cand.pop('cand_type')
+            cand['canddesc'] = cand.pop('cand_desc')
 
         # Add some metadata to 'cand' to conform to requirements
-        if opts.format == 'snana':
-            cand['survey'] = 'DES'
-            cand['filters'] = 'griz'
-            cand['redshift_final'] = '999. +- 99.'
-            if 'mwebv' not in cand: cand['mwebv'] = 0.
+        #if opts.format == 'snana':
+        #    cand['survey'] = 'DES'
+        #    cand['filters'] = 'griz'
+        #    cand['redshift_final'] = '999. +- 99.'
+        #    if 'mwebv' not in cand: cand['mwebv'] = 0.
 
-        dessn.writelc(data, fname, meta=cand, fmt=opts.format)
-
-    if opts.format == 'snana' and opts.snana_version != '':
-
-        #find all existing files.
-        fnames = glob.glob(os.path.join(outdir, 'des????????.dat'))
-
-        # list data files in *.LIST file.
-        fname_list = os.path.join(outdir, opts.snana_version + '.LIST')
-        with open(fname_list, 'w') as f:
-            for fname in fnames:
-                f.write(os.path.basename(fname))
-                f.write('\n')
-
-        # list nothing in *.IGNORE file
-        fname_ignore = os.path.join(outdir, opts.snana_version + '.IGNORE')
-        f = open(fname_ignore, 'w')
-        f.close()
+        dessn.write_lc(data, fname, meta=cand, fmt=opts.format, pedantic=False)
 
         # list user/time in *.README
-        fname_readme = os.path.join(outdir, opts.snana_version + '.README')
-        with open(fname_readme, 'w') as f:
-            f.write('download user = {:s}\n'.format(os.environ['USER']))
-            now = datetime.now()
-            now_prettystr = now.strftime('%Y-%m-%d %H:%M:%S')
-            f.write('download time = {:s}\n'.format(now_prettystr))
+        #fname_readme = os.path.join(outdir, opts.snana_version + '.README')
+        #with open(fname_readme, 'w') as f:
+        #    f.write('download user = {:s}\n'.format(os.environ['USER']))
+        #    now = datetime.now()
+        #    now_prettystr = now.strftime('%Y-%m-%d %H:%M:%S')
+        #    f.write('download time = {:s}\n'.format(now_prettystr))
 
 if __name__ == '__main__':
     main()
