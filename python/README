@@ -23,10 +23,11 @@ more detailed descriptions and examples.
   Is there a better name for this?)_
 * `dessn.read_rk_multi()`: Like above, but read from multiple similar files
   and glue results together into big tables.
-* `dessn.readlc()`: Read light curve data from a file of the given format:
-  csv, salt2 supported. See docstring for details.
-* `dessn.writelc()`: Write light curve data to a file of the given format:
-  csv, salt2, snana supported. See docstring for details.
+* `dessn.read_lc()`: Read light curve data from a file of the given format:
+  csv, salt2, json, fits supported. See docstring for details.
+* `dessn.write_lc()`: Write light curve data to a file of the given format:
+  csv, salt2, json, fits, snana supported. See docstring for details.
+* `dessn.mwdust()`: Retrieve E(B-V) value from IRSA server.
 
 ### Statistics
 
