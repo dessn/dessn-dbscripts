@@ -31,6 +31,7 @@ except:
     exit()
 try:
     import desdb
+    from desdb.desdb import PasswordGetter
 except:
     print ("This script requires the desdb package:\n"
            "https://github.com/esheldon/desdb\n"
@@ -105,8 +106,8 @@ def main():
     else:
         bandnames = None
 
-    # get username
-    user = getpass.getuser()
+    # get database username
+    user = PasswordGetter().user
 
     conn = desdb.connect()
 
@@ -227,27 +228,31 @@ def main():
                       ('zpsys', 'ab'),
                       ('status', data['status'])])
 
-        # Add username / query time
-        cand['query_user'] = user
-        cand['query_time'] = datetime.now().strftime('%Y-%m-%dT%H:%M:%S')
-        cand['query_utc'] = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S')
+        # Create metadata.
+        meta = odict()
+        meta['query_user'] = user
+        meta['query_time'] = datetime.now().strftime('%Y-%m-%dT%H:%M:%S')
+        meta['query_utc'] = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S')
+        meta['query_table'] = opts.table
+        meta.update(cand)
 
         # Shorten some keywords, for fits format only.
         if opts.format == 'fits':
-            cand['candtype'] = cand.pop('cand_type')
-            cand['canddesc'] = cand.pop('cand_desc')
-            cand['qry_user'] = cand.pop('query_user')
-            cand['qry_time'] = cand.pop('query_time')
-            cand['qry_utc'] = cand.pop('query_utc')
+            meta['metatype'] = meta.pop('cand_type')
+            meta['canddesc'] = meta.pop('cand_desc')
+            meta['qry_user'] = meta.pop('query_user')
+            meta['qry_time'] = meta.pop('query_time')
+            meta['qry_utc'] = meta.pop('query_utc')
+            meta['qry_tabl'] = meta.pop('query_table')
 
-        # Add some metadata to 'cand' to conform to requirements
+        # Add some metadata to 'meta' to conform to requirements
         #if opts.format == 'snana':
-        #    cand['survey'] = 'DES'
-        #    cand['filters'] = 'griz'
-        #    cand['redshift_final'] = '999. +- 99.'
-        #    if 'mwebv' not in cand: cand['mwebv'] = 0.
+        #    meta['survey'] = 'DES'
+        #    meta['filters'] = 'griz'
+        #    meta['redshift_final'] = '999. +- 99.'
+        #    if 'mwebv' not in meta: meta['mwebv'] = 0.
 
-        dessn.write_lc(data, fname, meta=cand, fmt=opts.format, pedantic=False)
+        dessn.write_lc(data, fname, meta=meta, fmt=opts.format, pedantic=False)
 
 if __name__ == '__main__':
     main()
