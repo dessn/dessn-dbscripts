@@ -14,6 +14,7 @@ import sys
 import os
 import glob
 import math
+import getpass
 from datetime import datetime
 import numpy as np
 try:
@@ -103,6 +104,9 @@ def main():
                      'z': names[3]}
     else:
         bandnames = None
+
+    # get username
+    user = getpass.getuser()
 
     conn = desdb.connect()
 
@@ -223,10 +227,18 @@ def main():
                       ('zpsys', 'ab'),
                       ('status', data['status'])])
 
-        # Shorten some keywords, for fits format
+        # Add username / query time
+        cand['query_user'] = user
+        cand['query_time'] = datetime.now().strftime('%Y-%m-%dT%H:%M:%S')
+        cand['query_utc'] = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S')
+
+        # Shorten some keywords, for fits format only.
         if opts.format == 'fits':
             cand['candtype'] = cand.pop('cand_type')
             cand['canddesc'] = cand.pop('cand_desc')
+            cand['qry_user'] = cand.pop('query_user')
+            cand['qry_time'] = cand.pop('query_time')
+            cand['qry_utc'] = cand.pop('query_utc')
 
         # Add some metadata to 'cand' to conform to requirements
         #if opts.format == 'snana':
@@ -236,14 +248,6 @@ def main():
         #    if 'mwebv' not in cand: cand['mwebv'] = 0.
 
         dessn.write_lc(data, fname, meta=cand, fmt=opts.format, pedantic=False)
-
-        # list user/time in *.README
-        #fname_readme = os.path.join(outdir, opts.snana_version + '.README')
-        #with open(fname_readme, 'w') as f:
-        #    f.write('download user = {:s}\n'.format(os.environ['USER']))
-        #    now = datetime.now()
-        #    now_prettystr = now.strftime('%Y-%m-%d %H:%M:%S')
-        #    f.write('download time = {:s}\n'.format(now_prettystr))
 
 if __name__ == '__main__':
     main()
