@@ -6,9 +6,9 @@ a query on SNCAND_ID. This behavior can be changed using the --table
 flag. For the SNOBS table, the query is based on RA and DEC (within a
 box of radius 1.08 arcsec). Note that the 'status' fields in the
 SNFORCE and SNOBS tables have different meanings.  If no SNIDs are
-given, all candidates with categorytype like "%SN%" in the SNSCAN
+given, all candidates with num_real >= 2 in the SNCAND
 table are retrieved. Otherwise, only candidates with the given SNIDs
-are retrieved (regardless of whether they are in the SNSCAN table).
+are retrieved (regardless of whether they have been scanned).
 """
 import sys
 import os
@@ -114,31 +114,29 @@ def main():
     # Get candidate info from database.
     # If specific ids are NOT given, get everything marked as "SN"
     # in the snscan table.
-    if len(snids) == 0:
-        q = """
+    q = """
         SELECT DISTINCT
-            a.snid, a.ra, a.dec, a.cand_type, a.cand_desc
-        FROM
-            sncand a, snscan b
-        WHERE
-            a.snid=b.snid
-            AND a.snfake_id=0
-            AND b.categorytype like '%SN%'
-        """
-        if not opts.all:
-            q += "            AND a.cand_type=0\n"
-        q += "        ORDER BY a.snid"
-
-    else:
-        q = """
-        SELECT
-            snid, ra, dec, cand_type, cand_desc
+            snid, ra, dec, cand_type, cand_desc, numepochs, numobs, num_real, num_artifact, num_unsure, num_unscanned
         FROM
             sncand
         WHERE
             snfake_id=0
-            AND snid in (""" + ", ".join(snids) + ")\n"
-        q += "        ORDER BY snid"
+        """
+
+    # if specific ids are not given, select candidates with num_real >= 2.
+    if len(snids) == 0:
+        q += """
+        AND numepochs >= 2
+        AND num_real >= 2
+        """
+        if not opts.all:
+            q += "            AND cand_type=0\n"
+
+    # otherwise, select the specific SNIDs.
+    else:
+        q+= "            AND snid in (" + ", ".join(snids) + ")\n"
+
+    q += "        ORDER BY snid"
 
     if opts.verbose:
         print "CANDIDATE QUERY:"
