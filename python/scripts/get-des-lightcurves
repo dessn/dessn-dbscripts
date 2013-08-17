@@ -23,7 +23,7 @@ except ImportError:
     odict = dict
 try:
     import cx_Oracle
-except:
+except ImportError:
     print ("This script requires the cx_Oracle python package. "
            "Follow instructions at\n"
            "https://github.com/esheldon/desdb#dependencies\n"
@@ -31,17 +31,23 @@ except:
     exit()
 try:
     import desdb
-    from desdb.desdb import PasswordGetter
-except:
+except ImportError:
     print ("This script requires the desdb package:\n"
            "https://github.com/esheldon/desdb\n"
            "exiting...")
     exit()
 try:
     import dessn
-except:
+except ImportError:
     print "The dessn module must be installed or in $PYTHONPATH."
     exit()
+
+# Get PasswordGetter for fetching db username.
+# The location moves from one version of desdb to the next....
+try:
+    from desdb.desdb import PasswordGetter  # newer
+except ImportError:
+    from desdb import PasswordGetter # version on FNAL
 
 from optparse import OptionParser
 
