@@ -10,46 +10,27 @@ given, all candidates with num_real >= 2 in the SNCAND
 table are retrieved. Otherwise, only candidates with the given SNIDs
 are retrieved (regardless of whether they have been scanned).
 """
+
 import sys
 import os
 import glob
 import math
-import getpass
 from datetime import datetime
-import numpy as np
+from optparse import OptionParser
 try:
     from collections import OrderedDict as odict
 except ImportError:
     odict = dict
-try:
-    import cx_Oracle
-except ImportError:
-    print ("This script requires the cx_Oracle python package. "
-           "Follow instructions at\n"
-           "https://github.com/esheldon/desdb#dependencies\n"
-           "exiting...")
-    exit()
-try:
-    import desdb
-except ImportError:
-    print ("This script requires the desdb package:\n"
-           "https://github.com/esheldon/desdb\n"
-           "exiting...")
-    exit()
-try:
-    import dessn
-except ImportError:
-    print "The dessn module must be installed or in $PYTHONPATH."
-    exit()
 
-# Get PasswordGetter for fetching db username.
-# The location moves from one version of desdb to the next....
+import numpy as np
+import cx_Oracle
+import desdb
 try:
-    from desdb.desdb import PasswordGetter  # newer
+    from desdb.desdb import PasswordGetter  # new location in desdb
 except ImportError:
-    from desdb import PasswordGetter # version on FNAL
+    from desdb import PasswordGetter # old location in desdb
 
-from optparse import OptionParser
+import dessn
 
 def main():
 
