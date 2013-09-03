@@ -1,0 +1,19 @@
+#!/bin/bash
+
+
+
+
+scp  date_stats.php date_stats2.php date_stats3.php date_stats4.php scan_stats.php scan_stats_cumulative.php initial_manual_scan.php initial_manual_scana.php manual_scan.php .updateCand2.php manual_scana.php .updateCand3.php index.html scan_schedule.html johnfisc@deslogin.cosmology.illinois.edu:/home2/SNWG/scan_2013/
+#scanningguide.pdf 
+#scp  manual_scan1.php  johnfisc@deslogin.cosmology.illinois.edu:/home2/SNWG/scan_test/
+
+#<!--<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+#<html>
+#<head>#
+#	<title>YUI 3 DT Checkbox Select</title>#
+#	<meta http-equiv="content-type" content="text/html; charset=utf-8">
+
+#</head>
+#<body>
+
+#-->

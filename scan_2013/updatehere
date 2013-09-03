@@ -1,0 +1,4 @@
+#!/bin/bash
+
+scp johnfisc@deslogin.cosmology.illinois.edu:/home2/SNWG/scan_2013/*php .
+
