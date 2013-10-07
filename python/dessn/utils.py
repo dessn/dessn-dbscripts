@@ -24,7 +24,7 @@ def dict_to_array(d):
 
     return result
 
-def read_rk(fname, array=True):
+def read_rk(fname, default_tablename=None, array=True):
     """Read a text file with a format typically used in SNANA and DES
     pipeline components.
 
@@ -105,10 +105,13 @@ def read_rk(fname, array=True):
             if '_' in word:
                 pos = word.find('_') + 1
                 tablename = word[pos:].rstrip(':')
+            elif default_tablename is not None:
+                tablename = default_tablename
             else:
-                raise ValueError('table name must be given as part of '
-                                 'NVAR keyword so that rows belonging to '
-                                 'this table can be identified')
+                raise ValueError(
+                    'table name must be given as part of NVAR keyword so '
+                    'that rows belonging to this table can be identified. '
+                    'Alternatively, supply the default_tablename keyword.')
             table = odict()
             tables[tablename] = table
 
@@ -174,7 +177,7 @@ def read_rk(fname, array=True):
     return meta, tables
 
 
-def read_rk_multi(fnames, array=True):
+def read_rk_multi(fnames, default_tablename=None, array=True):
     """Like ``read_rk()``, but read from multiple files containing
     the same tables and glue results together into big tables.
 
@@ -208,7 +211,8 @@ def read_rk_multi(fnames, array=True):
     compiled_tables = {}
     for fname in fnames:
 
-        meta, tables = read_rk(fname, array=False)
+        meta, tables = read_rk(fname, default_tablename=default_tablename,
+                               array=False)
         for key, table in tables.iteritems():
 
             # If we already have a table with this key,
