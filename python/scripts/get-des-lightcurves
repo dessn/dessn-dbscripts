@@ -1,14 +1,20 @@
 #!/usr/bin/env python
 """Get light curves of supernova candidates from DES database.
 
+If no SNIDs are given, all candidates with num_real >= 2 in the SNCAND
+table are retrieved. Otherwise, only candidates with the given SNIDs
+are retrieved (regardless of whether they have been scanned).
+
 By default, the light curves are retrieved from the SNFORCE table, with
 a query on SNCAND_ID. This behavior can be changed using the --table
 flag. For the SNOBS table, the query is based on RA and DEC (within a
 box of radius 1.08 arcsec). Note that the 'status' fields in the
-SNFORCE and SNOBS tables have different meanings.  If no SNIDs are
-given, all candidates with num_real >= 2 in the SNCAND
-table are retrieved. Otherwise, only candidates with the given SNIDs
-are retrieved (regardless of whether they have been scanned).
+SNFORCE and SNOBS tables have different meanings.
+
+For the SNFORCE table, when there are multiple rows with the same
+EXPNUM (exposure number from the EXPOSURE table), the row with the
+latest image_id (from the IMAGE table) is returned; others are
+discarded. This assumes that the latests image_id is the 'best'.
 """
 
 import sys
@@ -57,6 +63,10 @@ def main():
                       "g, r, i, z bands, as they should appear in the "
                       "output files. Example: desg,desr,desi,desz. Default: "
                       "g,r,i,z.")
+    parser.add_option("--mindate", default=None,
+                      help="Minimum candidate entry_date, format: YYYY-MM-DD")
+    parser.add_option("--maxdate", default=None,
+                      help="Maximum candidate entry_date, format: YYYY-MM-DD")
     parser.add_option("-o", "--outputdir", default='.',
                       help="Output directory. Default is current directory.")
     parser.add_option("-c", "--clobber", default=False, action='store_true',
@@ -103,21 +113,27 @@ def main():
     # in the snscan table.
     q = """
         SELECT DISTINCT
-            snid, ra, dec, cand_type, cand_desc, numepochs, numobs, num_real, num_artifact, num_unsure, num_unscanned
+            snid, ra, dec, cand_type, cand_desc, numepochs, numobs, num_real, num_artifact, num_unsure, num_unscanned, entry_date
         FROM
             sncand
         WHERE
             snfake_id=0
         """
 
-    # if specific ids are not given, select candidates with num_real >= 2.
+    # if specific ids are not given, select all candidates with num_real >= 2.
+    # Otherwise, select just the specific SNIDs requested.
     if len(snids) == 0:
-        q += """
-        AND numepochs >= 2
-        AND num_real >= 2
-        """
+        q += "            AND num_real >= 2\n"
         if not opts.all:
             q += "            AND cand_type=0\n"
+    else:
+        q+= "            AND snid in (" + ", ".join(snids) + ")\n"
+
+    # Add date info to query
+    if opts.mindate is not None:
+        q += "            AND entry_date >= date '{}'".format(opts.mindate)
+    if opts.maxdate is not None:
+        q += "            AND entry_date <= date '{}'".format(opts.maxdate)
 
     # otherwise, select the specific SNIDs.
     else:
@@ -152,7 +168,7 @@ def main():
             q = """
             SELECT
                 substr(e.object, 22, 2) field, e.band, e.mjd_obs, f.flux,
-                f.flux_err, f.status
+                f.flux_err, f.status, e.expnum, f.image_id
             FROM
                 exposure e, snforce f, image i
             WHERE
@@ -160,23 +176,22 @@ def main():
                 AND i.id=f.image_id
                 AND e.id=i.exposureid
             ORDER BY
-                e.mjd_obs
+                e.expnum, f.image_id
             """.format(cand['snid'])
 
         elif opts.table == 'snobs':
             q = """
             SELECT
                 substr(e.object, 22, 2) field, e.band, e.mjd_obs, o.flux,
-                o.flux_err, o.mag, o.status
+                o.flux_err, o.mag, o.status, e.expnum
             FROM
                 exposure e, snobs o
             WHERE
                 o.ra between {:f} and {:f}
                 AND o.dec between {:f} and {:f}
-                AND o.status=0
                 AND o.exposureid=e.expnum
             ORDER BY
-                e.mjd_obs
+                e.expnum
             """
 
             boxrad = 1.08 / 3600.
@@ -189,6 +204,16 @@ def main():
         if opts.verbose:
             print q
         data = conn.quick(q, array=True)
+
+        # Get just the latest image ID for each exposure (expnum)
+        # This counts on the data being ordered by (expnum, image_id).
+        if opts.table == 'snforce':
+            indicies_to_use = []
+            for i in range(1, len(data)):
+                if not (data['expnum'][i] == data['expnum'][i-1]):
+                    indicies_to_use.append(i-1)
+            indicies_to_use.append(len(data)-1)
+            data = data[indicies_to_use]
 
         # Convert band names, if requested.
         if bandnames is None:
@@ -204,14 +229,17 @@ def main():
         elif opts.table == 'snobs':
             zp = data['mag'] + 2.5 * np.log10(data['flux'])
 
-        data = odict([('time', data['mjd_obs']),
-                      ('field', data['field']),
-                      ('band', band),
-                      ('flux', data['flux']),
-                      ('fluxerr', data['flux_err']),
-                      ('zp', zp),
-                      ('zpsys', 'ab'),
-                      ('status', data['status'])])
+        finaldata = odict([('time', data['mjd_obs']),
+                           ('field', data['field']),
+                           ('band', band),
+                           ('flux', data['flux']),
+                           ('fluxerr', data['flux_err']),
+                           ('zp', zp),
+                           ('zpsys', 'ab'),
+                           ('status', data['status']),
+                           ('expnum', data['expnum'])])
+        if opts.table == 'snforce':
+            finaldata['image_id'] = data['image_id']
 
         # Create metadata.
         meta = odict()
@@ -221,6 +249,9 @@ def main():
         meta['query_table'] = opts.table
         meta.update(cand)
 
+        # Convert entry_date from datetime object to a string.
+        meta['entry_date'] = meta['entry_date'].strftime('%Y-%m-%dT%H:%M:%S')
+
         # Shorten some keywords, for fits format only.
         if opts.format == 'fits':
             meta['metatype'] = meta.pop('cand_type')
@@ -229,15 +260,16 @@ def main():
             meta['qry_time'] = meta.pop('query_time')
             meta['qry_utc'] = meta.pop('query_utc')
             meta['qry_tabl'] = meta.pop('query_table')
+            meta['nepochs'] = meta.pop('numepochs')
+            meta['nobs'] = meta.pop('numobs')
+            meta['nreal'] = meta.pop('num_real')
+            meta['nartifct'] = meta.pop('num_artifact')
+            meta['nunsure'] = meta.pop('num_unsure')
+            meta['nunscan'] = meta.pop('num_unscanned')
+            meta['entrdate'] = meta.pop('entry_date')
 
-        # Add some metadata to 'meta' to conform to requirements
-        #if opts.format == 'snana':
-        #    meta['survey'] = 'DES'
-        #    meta['filters'] = 'griz'
-        #    meta['redshift_final'] = '999. +- 99.'
-        #    if 'mwebv' not in meta: meta['mwebv'] = 0.
-
-        dessn.write_lc(data, fname, meta=meta, fmt=opts.format, pedantic=False)
+        dessn.write_lc(finaldata, fname, meta=meta, fmt=opts.format,
+                       pedantic=False)
 
 if __name__ == '__main__':
     main()
