@@ -110,7 +110,7 @@ def main():
     # get database username
     user = PasswordGetter().user
 
-    conn = desdb.connect()
+    conn = desdb.connect(dbname='desoper')
 
     # Get candidate info from database.
     # If specific ids are NOT given, get everything marked as "SN"
@@ -271,6 +271,10 @@ def main():
         gals = conn.quick(q)
         if len(gals) == 1:
             meta.update(gals[0])
+        elif len(gals) == 0:
+            meta.update({'host_photoz': None, 'host_photoz_err': None,
+                         'host_specz': None, 'host_specz_err': None,
+                         'host_separation': None})
         elif len(gals) > 1:
             raise RuntimeError('More than one matching SNGALS entry with '
                                'HOST=1')
@@ -294,10 +298,10 @@ def main():
             meta['nunscan'] = meta.pop('num_unscanned')
             meta['entrdate'] = meta.pop('entry_date')
 
-        # Remove any 'None' items from the metadata
+        # Turn `None` items into the string 'NULL' for writing to text file.
         for key in meta:
             if meta[key] is None:
-                del meta[key]
+                meta[key] = 'NULL'
 
         dessn.write_lc(finaldata, fname, meta=meta, fmt=opts.format,
                        pedantic=False)
