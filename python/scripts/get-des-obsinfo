@@ -206,7 +206,6 @@ def world2pix(ra, dec, wcsdata):
 def main():
 
     options, args = parser.parse_args(sys.argv[1:])
-    print options.cache
     conn = desdb.connect(dbname='desoper')
     fname = options.outfile
     if fname is None:
