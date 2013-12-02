@@ -29,12 +29,20 @@ a file in chosen directory. Requires NumPy, cx_Oracle and desdb python
 packages.  For full option list and useage instructions, run with no
 arguments and `-h` or `--help` option.
 
-scripts/convertdbExtract2snana.pl
----------------------------------
-
 
 scripts/make_lcdr.pl
 --------------------
+Top-level script to extract light curves from Oracle
+and create data files in multiple formats that are 
+web-accessible at
+  http://sdssdp62.fnal.gov/sdsssn/SNANA-PUBLIC/INTERNAL/DES/data/
+See comment at top of make_lcdr.pl for more details.
+
+
+scripts/convertdbExtract2snana.pl
+---------------------------------
+Convert csv-formatted data files (created by get-des-lightcurves)
+into snana/text format. This script is also used by make_lcdr.pl.
 
 
 scripts/get-des-obsinfo
