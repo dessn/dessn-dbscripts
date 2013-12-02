@@ -16,12 +16,26 @@ Cronjob to prepare GPS files for Suominet to measure precipitable
 water vapor (PWV). Can only be run from Fermilab DES machines. See top
 of script for more information and usage instructions.
 
+scripts/GPS_cronjob_getResults.pl
+---------------------------------
+Cronjob to pull Suominet-analyzed results for CTIO and update a text
+file in $DES_ROOT/GPS/SuominetResults/. Can only be run from Fermilab
+DES machines.
+
 scripts/get-des-lightcurves
 ---------------------------
 Retrieves light curves of SN candidates from database, writes each to
 a file in chosen directory. Requires NumPy, cx_Oracle and desdb python
 packages.  For full option list and useage instructions, run with no
 arguments and `-h` or `--help` option.
+
+scripts/convertdbExtract2snana.pl
+---------------------------------
+
+
+scripts/make_lcdr.pl
+--------------------
+
 
 scripts/get-des-obsinfo
 -----------------------
