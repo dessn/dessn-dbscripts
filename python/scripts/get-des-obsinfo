@@ -1,0 +1,453 @@
+#!/usr/bin/env python
+"""%prog [options] -o OUTFILE
+
+Get observing conditions for SN coadd images from the database.
+Currently these are written to an SNANA "SIMLIB" file.
+
+By default, positions are chosen randomly from an area that entirely encloses
+all the SN fields. For each position, the image WCS information from the
+'diff_nitecmb_diff' or 'diff_single_diff' images is used to determine
+whether each image covers the position. ('diff_nitecmb_diff' is used for deep
+fields g, r, i, z and shallow fields z; 'diff_single_diff' is used for shallow
+fields g, r, i). At the end, an "effective area" is reported. This is the area
+of sky that has at least one observation. It can be thought of as the 
+area from which the positions *in the output file* were selected
+(because positions are not written to the output file unless  they have
+at least one observation). It is determined statistically, by multiplying the
+total area (entirely enclosing all the SN fields) by the fraction of positions
+that have at least one observation.
+
+Note: There are a few approximations made in using the WCS but
+it should be quite accurate. A bigger approximation is that masking is ignored.
+That is, if a position corresponds to a position anywhere on the image, it is
+considered as being observed in the image, even if it is on a masked pixel.
+This results in overestimation of observations.
+"""
+
+import random
+import os
+import sys
+import math
+import time
+from optparse import OptionParser
+import numpy as np
+import desdb
+
+master_head_template = """\
+TELESCOPE: CTIO
+SURVEY: DES      FILTERS: griz
+USER: username    HOST: hostname
+COMMENT: 'No comment'
+BEGIN LIBGEN
+"""
+
+head_template = """\
+    
+# --------------------------------------------
+LIBID: {0:d}
+RA: {1:.6f}    DECL: {2:.6f}   NOBS: {3:d}
+MWEBV: {4:.3f}   PIXSIZE: {5:.3f}
+"""
+field_template = "FIELD: {0:s}  # CCDS: {1:s}\n"
+
+head_comment = """\
+#                           CCD  CCD           PSF1 PSF2 PSF2/1
+#     MJD      IDEXPT  FLT GAIN NOISE  SKYSIG  (pixels)  RATIO ZPTAVG ZPTSIG    MAG
+"""    
+
+line_template = ('S: {0:9.3f} {1:10d} {2:1s} {3:5.2f} {4:5.2f} {5:7.2f}  '
+                 '{6:4.2f} {7:4.2f} {8:5.3f} {9:6.2f} {10:6.3f} {11:7.3f}\n')
+
+cache_filename = 'des-obsinfo-cache.npy'
+
+parser=OptionParser(__doc__)
+parser.add_option('--infile', default=None,
+                  help='if specified, use positions read from this file '
+                  '(format is space-separated RA and Dec on each line)')
+parser.add_option('-o', '--outfile', default=None,
+                  help='name of file to write output to [REQUIRED]')
+parser.add_option('-n', type='int', default=100,
+                  help='number of entries to generate if infile not given '
+                  '(default=100)')
+parser.add_option('-c', '--cache', action='store_true', default=False,
+                  help='cache query results in ./{0}'.format(cache_filename))
+
+# Definitions for randomly selection positions
+bounds = {'C': (51.2, 55.6, -30.2, -26.0),
+          'X': (33.3, 37.6,  -7.5,  -4.5),
+          'E': ( 6.2, 11.2, -45.1, -41.9),
+          'S': (40.0, 44.0,  -2.0,   1.2)}
+
+# Area of each field
+areas = {}
+for key, (ra_min, ra_max, dec_min, dec_max) in bounds.items():
+    dec = 0.5 * (dec_min + dec_max)
+    areas[key] = ((ra_max - ra_min) * (dec_max - dec_min) *
+                  math.cos(dec * 3.141592/180.))
+
+# weight of each field (percentage of total area)
+totarea = sum(areas.values())
+weights = {key: val/totarea for key, val in areas.items()}
+
+# "cdf" of field weights
+cdf = []
+cumsum = 0.
+for f, w in weights.items():
+    cumsum += w
+    cdf.append((f, cumsum))
+
+def get_random_position():
+    """Get a random RA, Dec position from the fields defined above.
+
+    We could choose a random point from the entire sphere, which would
+    be simpler and possibly more accurate, but only 0.1% of the sphere
+    falls in our fields so it would take about 1000 tries to  get a
+    single point in our fields. This is only slightly more complex.
+    """
+    r = random.random()
+    i = 0
+    while cdf[i][1] < r:
+        i += 1
+    f = cdf[i][0]
+    ra = bounds[f][0] + random.random() * (bounds[f][1] - bounds[f][0])
+    dec = bounds[f][2] + random.random() * (bounds[f][3] - bounds[f][2])
+    return ra, dec
+
+
+def pix2world(x, y, wcsdata, pv=False):
+    """Convert from pixel to world coordinates in degrees.
+
+    Only array-wise operations are used, so that x, y and wcsdata can be
+    arrays (as long as they are broadcastable).
+
+    Uses treatment of PV?_? keywords described here:
+    www.cadc-ccda.hia-iha.nrc-cnrc.gc.ca/megapipe/docs/CD_PV_keywords.pdf
+    """
+
+    x_off = x - wcsdata['crpix1']
+    y_off = y - wcsdata['crpix2']
+    xi = wcsdata['cd1_1'] * x_off + wcsdata['cd1_2'] * y_off
+    eta = wcsdata['cd2_1'] * x_off + wcsdata['cd2_2'] * y_off
+
+    if pv:
+        r = np.sqrt(xi**2 + eta**2)
+        xi = (wcsdata['pv1_0'] +
+              wcsdata['pv1_1'] * xi +
+              wcsdata['pv1_2'] * eta +
+              wcsdata['pv1_3'] * r +
+              wcsdata['pv1_4'] * xi**2 +
+              wcsdata['pv1_5'] * xi * eta +
+              wcsdata['pv1_6'] * eta**2 +
+              wcsdata['pv1_7'] * xi**3 +
+              wcsdata['pv1_8'] * xi**2 * eta +
+              wcsdata['pv1_9'] * xi * eta**2 +
+              wcsdata['pv1_10'] * eta**3)
+        eta = (wcsdata['pv2_0'] +
+               wcsdata['pv2_1'] * eta +
+               wcsdata['pv2_2'] * xi +
+               wcsdata['pv2_3'] * r +
+               wcsdata['pv2_4'] * eta**2 +
+               wcsdata['pv2_5'] * eta * xi +
+               wcsdata['pv2_6'] * xi**2 +
+               wcsdata['pv2_7'] * eta**3 +
+               wcsdata['pv2_8'] * eta**2 * xi +
+               wcsdata['pv2_9'] * eta * xi**2 +
+               wcsdata['pv2_10'] * xi**3)
+
+    # Convert values to radians
+    xi_r = (np.pi / 180.) * xi
+    eta_r = (np.pi / 180.) * eta
+    crval1_r = (np.pi / 180.) * wcsdata['crval1']
+    crval2_r = (np.pi / 180.) * wcsdata['crval2']
+
+    denom = 1. - eta_r * np.tan(crval2_r)
+    alpha = np.arctan(xi_r / np.cos(crval2_r) / denom)
+    ra = alpha + crval1_r
+    dec = np.arctan((eta_r + np.tan(crval2_r)) * np.cos(alpha) / denom)
+
+    # Return values in degrees
+    return (180./np.pi) * ra, (180./np.pi) * dec
+
+
+def world2pix(ra, dec, wcsdata):
+    """Convert from RA, Dec to pixel positions.
+
+    No distortion terms are applied, because this cannot be done array-wise.
+    Rather, it requires iteration using the forward solution.
+    """
+
+    ra_r = (np.pi / 180.) * ra
+    dec_r = (np.pi / 180.) * dec
+    crval1_r = (np.pi / 180.) * wcsdata['crval1']
+    crval2_r = (np.pi / 180.) * wcsdata['crval2']
+
+    eta = ((1. - np.tan(crval2_r) * np.cos(ra_r - crval1_r) / np.tan(dec_r)) /
+           (np.tan(crval2_r) + np.cos(ra_r - crval1_r) / np.tan(dec_r)))
+    xi = np.tan(ra_r-crval1_r) * np.cos(crval2_r) * (1. - eta*np.tan(crval2_r))
+
+    # Convert to degrees
+    xi = (180./np.pi) * xi
+    eta = (180./np.pi) * eta
+
+    # Invert cd matrix
+    det = (wcsdata['cd1_1'] * wcsdata['cd2_2'] -
+           wcsdata['cd1_2'] * wcsdata['cd2_1'])
+    dc1_1 = wcsdata['cd2_2'] / det
+    dc1_2 = -wcsdata['cd1_2'] / det
+    dc2_1 = -wcsdata['cd2_1'] / det
+    dc2_2 = wcsdata['cd1_1'] / det
+    
+    x = dc1_1 * xi + dc1_2 * eta + wcsdata['crpix1']
+    y = dc2_1 * xi + dc2_2 * eta + wcsdata['crpix2']
+
+    return x, y
+
+
+def main():
+
+    options, args = parser.parse_args(sys.argv[1:])
+    print options.cache
+    conn = desdb.connect(dbname='desoper')
+    fname = options.outfile
+    if fname is None:
+        print "must specify output file."
+        exit()
+
+    # Start from the snobsinfo table, connect to the image table to get WCS
+    # info.
+    query = """\
+    SELECT DISTINCT
+        substr(e.object, 22, 2) field,
+        oi.ccdnum,
+        oi.nite,
+        oi.band,
+        oi.expnum,
+        oi.run,
+        e.mjd_obs,
+        (oi.chip_ccdgaina + oi.chip_ccdgainb)/2. as gain,
+        oi.chip_sigsky,
+        oi.psf_nea,
+        oi.chip_zero_point,
+        oi.chip_zero_point_rms,
+        i.id as image_id,
+        i.cunit1,
+        i.cunit2,
+        i.ctype1,
+        i.ctype2,
+        i.cd1_1,
+        i.cd1_2,
+        i.cd2_1,
+        i.cd2_2,
+        i.crval1,
+        i.crval2,
+        i.crpix1,
+        i.crpix2,
+        i.pv1_0, i.pv1_1, i.pv1_2, i.pv1_3, i.pv1_4, i.pv1_5,
+        i.pv1_6, i.pv1_7, i.pv1_8, i.pv1_9, i.pv1_10,
+        i.pv2_0, i.pv2_1, i.pv2_2, i.pv2_3, i.pv2_4, i.pv2_5,
+        i.pv2_6, i.pv2_7, i.pv2_8, i.pv2_9, i.pv2_10,
+        i.naxis1,
+        i.naxis2
+    FROM
+        snobsinfo oi, exposure e, image i
+    WHERE
+        oi.expnum=e.expnum AND
+        oi.tile=0 AND           /* only coadds */
+        oi.run = i.run AND      /* match to unique image table entry */
+        oi.band = i.band AND    /* ...                               */
+        oi.ccdnum = i.ccd AND   /* ...                               */
+        (
+          /* coadd image if deep field or z band */
+          (
+            i.imagetype='diff_nitecmb_diff' and
+            (substr(e.object, 22, 2) in ('C3','X3') or
+             (substr(e.object, 22, 2) in ('C1','C2','E1','E2',
+                                          'S1','S2','X1','X2') and oi.band='z')
+            )
+          )
+          or
+          /* single image if shallow field and gri band */
+          (
+            i.imagetype='diff_single_diff' and
+            substr(e.object, 22, 2) in ('C1','C2','E1','E2',
+                                        'S1','S2','X1','X2') and
+            oi.band in ('g', 'r', 'i')
+          )
+        )
+    ORDER BY
+        field, oi.ccdnum, oi.nite, oi.band, oi.run
+    """
+
+    # Run the query or load pre-saved results.
+    if os.path.exists(cache_filename):
+        print "Loading from {0}...".format(cache_filename), 
+        data = np.load(cache_filename)
+    else:
+        print "Querying database (this may take a minute or two)..."
+        t0 = time.time()
+        data = conn.quick(query, array=True)
+        print "Query took {0:.2f} seconds, {1:.2f} MB array.".format(
+            time.time() - t0, data.nbytes / 1.e6)
+        if options.cache:
+            print "Saving to {0}...".format(cache_filename)
+            np.save(cache_filename, data)
+    print len(data), "records"
+
+    # Get just the latest processing run for each exposure/ccd.
+    # This counts on the data being ordered by exposureid, ccd, run.
+    indicies_to_use = []
+    for i in range(1, len(data)):
+        if not (data['expnum'][i] == data['expnum'][i-1] and
+                data['ccdnum'][i] == data['ccdnum'][i-1]):
+            indicies_to_use.append(i-1)
+    indicies_to_use.append(len(data)-1)
+    data = data[indicies_to_use]
+    print len(data), "records after trimming duplicate runs."
+
+    # Hack to remove dirty data from the table:
+    # This is necessary because there were some -9's written to the database.
+    mask = data['psf_nea'] > 0.
+    data = data[mask]
+    print len(data), "records after trimming negative PSF_NEA entries."
+
+    # Hack to replace nan's in data['chip_zero_point_rms']:
+    # This was fixed at some point in doFake but there are existing database
+    # entries
+    mask = np.isnan(data['chip_zero_point_rms'])
+    data['chip_zero_point_rms'][mask] = 0.1
+
+    # Get extent of each image in RA, Dec by finding RA, Dec of image corners.
+    X = np.empty((4, len(data)))
+    Y = np.empty((4, len(data)))
+    X[0, :] = 0.5
+    Y[0, :] = 0.5
+    X[1, :] = data['naxis1'] + 0.5
+    Y[1, :] = 0.5
+    X[2, :] = 0.5
+    Y[2, :] = data['naxis2'] + 0.5
+    X[3, :] = data['naxis1'] + 0.5
+    Y[3, :] = data['naxis2'] + 0.5
+    ra_corners, dec_corners = pix2world(X, Y, data, pv=True)
+    ra_min = np.min(ra_corners, axis=0)
+    ra_max = np.max(ra_corners, axis=0)
+    dec_min = np.min(dec_corners, axis=0)
+    dec_max = np.max(dec_corners, axis=0)
+
+    # Find offset between fully correct solution and approximation
+    # at the center of each image.
+    x_ctr = (data['naxis1'] + 1.) / 2.
+    y_ctr = (data['naxis2'] + 1.) / 2.
+    ra_ctr, dec_ctr = pix2world(x_ctr, y_ctr, data, pv=True)
+    x_approx, y_approx = world2pix(ra_ctr, dec_ctr, data)
+    x_distoff = x_ctr - x_approx  # offset due to distortion
+    y_distoff = y_ctr - y_approx  # offset due to distortion
+
+    # If input file is defined, read positions.
+    if options.infile is not None:
+        print "Reading positions from {0}".format(options.infile)
+        positions = []
+        with open(options.infile, 'r') as infile:
+            for line in infile:
+                words = line.split()
+                positions.append((float(words[0]), float(words[1])))
+        ntarget = len(positions)
+
+    # Otherwise, report area from which positions will be selected.
+    else:
+        print "Randomly selecting position from fields:"
+        for name in areas.keys():
+            print ("    {0}: RA=[{1:5.1f},{2:5.1f}] Dec=[{3:5.1f},{4:5.1f}] "
+                   "{5:7.4f} deg^2, weight={6:6.4f}"
+                   .format(name,
+                           bounds[name][0],
+                           bounds[name][1],
+                           bounds[name][2],
+                           bounds[name][3],
+                           areas[name],
+                           weights[name]))
+        ntarget = options.n
+
+    out = open(fname, 'w')
+    out.write(master_head_template)
+
+    ntot = 0
+    ngood = 0
+    noverlap = 0  # keep track of number in overlapping fields
+    while ngood < ntarget:
+        ntot += 1
+
+        # Get a position
+        if options.infile:
+            if len(positions) == 0: break
+            ra, dec = positions.pop(0)
+        else:
+            ra, dec = get_random_position()
+
+        # which images might the position *possibly* overlap?
+        mask = ((ra > ra_min) & (ra < ra_max) &
+                (dec > dec_min) & (dec < dec_max))
+        posdata = data[mask]
+        if len(posdata) > 0:
+            # Which images *actually* overlap the position?
+            x, y = world2pix(ra, dec, posdata)
+            x += x_distoff[mask]
+            y += y_distoff[mask]
+            mask = ((x > 0.5) & (x < posdata['naxis1'] + 0.5) &
+                    (y > 0.5) & (y < posdata['naxis2'] + 0.5))
+            posdata = posdata[mask]
+
+        if len(posdata) > 0:
+            ngood += 1
+
+            # Write header and entries for this position to SIMLIB file
+            out.write(head_template.format(ngood, ra, dec, len(posdata),
+                                           0., 0.27))
+
+            # Get unique fields
+            fields = np.unique(posdata['field'])
+            if len(fields) > 1:
+                noverlap += 1
+
+            for i, field in enumerate(fields):
+                fielddata = posdata[posdata['field'] == field]
+                ccds = np.unique(fielddata['ccdnum'])
+                out.write(field_template.format(field, str(ccds)))
+                if i == 0:
+                    out.write(head_comment)
+
+                for j in range(len(posdata)):
+                    out.write(line_template.format(
+                            posdata['mjd_obs'][j],
+                            posdata['expnum'][j],
+                            posdata['band'][j],
+                            posdata['gain'][j],
+                            0.,
+                            posdata['chip_sigsky'][j],
+                            posdata['psf_nea'][j],
+                            0.,
+                            0.,
+                            posdata['chip_zero_point'][j],
+                            posdata['chip_zero_point_rms'][j],
+                            99.
+                            ))
+
+            out.write('END_LIBID: {0:d}\n'.format(ngood))
+
+        print '\r{0:<5d} on images / {1:<5d} placed'.format(ngood, ntot),
+        sys.stdout.flush()
+
+    out.write("END_OF_SIMLIB\n")
+
+    print "\n{0:<5d} on overlapping fields".format(noverlap)
+
+    # Effective area. Only calculated if positions were seleceted randomly.
+    if options.infile is None:
+        effective_area = totarea * float(ngood)/ntot
+        print "Effective area: {0:.4f} deg^2".format(effective_area)
+        out.write('EFFECTIVE_AREA: {0:.4f}\n'.format(effective_area))
+
+    out.close()
+    print "Wrote to:", fname
+
+if __name__ == '__main__':
+    main()
