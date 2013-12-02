@@ -1,5 +1,0 @@
-Scripts
--------
-* GPS_cronjob_forSuominet.pl :  cronjob to prepare GPS files for Suominet
-   to measure precipitable water vapor (PWV). See top of script for
-   usage instructions.
