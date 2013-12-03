@@ -416,17 +416,17 @@ def main():
 
                 for j in range(len(posdata)):
                     out.write(line_template.format(
-                            posdata['mjd_obs'][j],
-                            posdata['expnum'][j],
-                            posdata['band'][j],
-                            posdata['gain'][j],
+                            float(posdata['mjd_obs'][j]),
+                            int(posdata['expnum'][j]),
+                            str(posdata['band'][j]),
+                            float(posdata['gain'][j]),
                             0.,
-                            posdata['chip_sigsky'][j],
-                            posdata['psf_nea'][j],
+                            float(posdata['chip_sigsky'][j]),
+                            float(posdata['psf_nea'][j]),
                             0.,
                             0.,
-                            posdata['chip_zero_point'][j],
-                            posdata['chip_zero_point_rms'][j],
+                            float(posdata['chip_zero_point'][j]),
+                            float(posdata['chip_zero_point_rms'][j]),
                             99.
                             ))
 
