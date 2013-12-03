@@ -279,7 +279,7 @@ def main():
 
     # Run the query or load pre-saved results.
     if os.path.exists(cache_filename):
-        print "Loading from {0}...".format(cache_filename), 
+        print "Loading from {0}...".format(cache_filename)
         data = np.load(cache_filename)
     else:
         print "Querying database (this may take a minute or two)..."
@@ -301,19 +301,20 @@ def main():
             indicies_to_use.append(i-1)
     indicies_to_use.append(len(data)-1)
     data = data[indicies_to_use]
-    print len(data), "records after trimming duplicate runs."
+    print len(data), "records after trimming duplicate runs"
 
     # Hack to remove dirty data from the table:
     # This is necessary because there were some -9's written to the database.
     mask = data['psf_nea'] > 0.
     data = data[mask]
-    print len(data), "records after trimming negative PSF_NEA entries."
+    print len(data), "records after trimming entries with PSF_NEA < 0"
 
-    # Hack to replace nan's in data['chip_zero_point_rms']:
-    # This was fixed at some point in doFake but there are existing database
-    # entries
-    mask = np.isnan(data['chip_zero_point_rms'])
-    data['chip_zero_point_rms'][mask] = 0.1
+    # Hack to cut crazy zeropoint RMS values, including nan
+    mask = data['chip_zero_point_rms'] <= 0.5
+    data = data[mask]
+    msg = ("{0:d} records after trimming entries with "
+           "CHIP_ZERO_POINT_RMS > 0.5".format(len(data)))
+    print msg
 
     # Get extent of each image in RA, Dec by finding RA, Dec of image corners.
     X = np.empty((4, len(data)))
@@ -414,21 +415,22 @@ def main():
                 if i == 0:
                     out.write(head_comment)
 
-                for j in range(len(posdata)):
-                    out.write(line_template.format(
-                            float(posdata['mjd_obs'][j]),
-                            int(posdata['expnum'][j]),
-                            str(posdata['band'][j]),
-                            float(posdata['gain'][j]),
+                for j in range(len(fielddata)):
+                    out.write(
+                        line_template.format(
+                            float(fielddata['mjd_obs'][j]),
+                            int(fielddata['expnum'][j]),
+                            str(fielddata['band'][j]),
+                            float(fielddata['gain'][j]),
                             0.,
-                            float(posdata['chip_sigsky'][j]),
-                            float(posdata['psf_nea'][j]),
+                            float(fielddata['chip_sigsky'][j]),
+                            float(fielddata['psf_nea'][j]),
                             0.,
                             0.,
-                            float(posdata['chip_zero_point'][j]),
-                            float(posdata['chip_zero_point_rms'][j]),
-                            99.
-                            ))
+                            float(fielddata['chip_zero_point'][j]),
+                            float(fielddata['chip_zero_point_rms'][j]),
+                            99.)
+                        )
 
             out.write('END_LIBID: {0:d}\n'.format(ngood))
 
