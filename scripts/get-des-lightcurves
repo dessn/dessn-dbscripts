@@ -37,6 +37,24 @@ try:
 except ImportError:
     from desdb import PasswordGetter # old location in desdb
 
+def dict_to_array(d):
+    """Convert a dictionary of lists (of equal length) to a numpy array."""
+
+    # first convert all lists to 1-d arrays, in order to let numpy
+    # figure out the necessary size of the string arrays.
+    dtype = []
+    for key in d: 
+        d[key] = np.array(d[key])
+        dtype.append((key, d[key].dtype))
+    
+    # Initialize ndarray and then fill it.
+    firstkey = d.keys()[0]
+    result = np.empty(len(d[firstkey]), dtype=dtype)
+    for key, col in d.iteritems():
+        result[key] = col
+
+    return result
+
 # Writer: csv =============================================================== #
 def _write_csv(f, data, meta, **kwargs):
     
