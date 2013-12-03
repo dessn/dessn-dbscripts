@@ -39,6 +39,8 @@ SURVEY: DES      FILTERS: griz
 USER: username    HOST: hostname
 COMMENT: 'No comment'
 BEGIN LIBGEN
+
+#--------------------------------------------------------------------------
 """
 
 head_template = """\
@@ -211,6 +213,8 @@ def main():
     if fname is None:
         print "must specify output file."
         exit()
+    out = open(fname, 'w')
+    out.write(master_head_template)
 
     # Start from the snobsinfo table, connect to the image table to get WCS
     # info.
@@ -290,7 +294,9 @@ def main():
         if options.cache:
             print "Saving to {0}...".format(cache_filename)
             np.save(cache_filename, data)
-    print len(data), "records"
+    msg = "{0:d} records".format(len(data))
+    print msg
+    out.write('#{0}\n'.format(msg))
 
     # Get just the latest processing run for each exposure/ccd.
     # This counts on the data being ordered by exposureid, ccd, run.
@@ -301,13 +307,16 @@ def main():
             indicies_to_use.append(i-1)
     indicies_to_use.append(len(data)-1)
     data = data[indicies_to_use]
-    print len(data), "records after trimming duplicate runs"
+    msg = "{0:d} records after trimming duplicate runs".format(len(data))
+    print msg
+    out.write('#{0}\n'.format(msg))
 
     # Hack to remove dirty data from the table:
     # This is necessary because there were some -9's written to the database.
     mask = data['psf_nea'] > 0.
     data = data[mask]
-    print len(data), "records after trimming entries with PSF_NEA < 0"
+    msg = ("{0:d} records after trimming entries with PSF_NEA < 0"
+           .format(len(data)))
 
     # Hack to cut crazy zeropoint RMS values, including nan
     mask = data['chip_zero_point_rms'] <= 0.5
@@ -315,6 +324,7 @@ def main():
     msg = ("{0:d} records after trimming entries with "
            "CHIP_ZERO_POINT_RMS > 0.5".format(len(data)))
     print msg
+    out.write('#{0}\n'.format(msg))
 
     # Get extent of each image in RA, Dec by finding RA, Dec of image corners.
     X = np.empty((4, len(data)))
@@ -344,19 +354,24 @@ def main():
 
     # If input file is defined, read positions.
     if options.infile is not None:
-        print "Reading positions from {0}".format(options.infile)
+        msg = "Reading positions from {0}".format(options.infile)
+        print msg
         positions = []
         with open(options.infile, 'r') as infile:
             for line in infile:
                 words = line.split()
                 positions.append((float(words[0]), float(words[1])))
         ntarget = len(positions)
+        msg += '... {0:d} positions'.format(ntarget)
+        out.write('#{0}\n'.format(msg))
 
     # Otherwise, report area from which positions will be selected.
     else:
-        print "Randomly selecting position from fields:"
+        msg = "Randomly selecting position from fields:"
+        print msg
+        out.write('#{0}\n'.format(msg))
         for name in areas.keys():
-            print ("    {0}: RA=[{1:5.1f},{2:5.1f}] Dec=[{3:5.1f},{4:5.1f}] "
+            msg = ("    {0}: RA=[{1:5.1f},{2:5.1f}] Dec=[{3:5.1f},{4:5.1f}] "
                    "{5:7.4f} deg^2, weight={6:6.4f}"
                    .format(name,
                            bounds[name][0],
@@ -365,10 +380,9 @@ def main():
                            bounds[name][3],
                            areas[name],
                            weights[name]))
+            print msg
+            out.write('#{0}\n'.format(msg))
         ntarget = options.n
-
-    out = open(fname, 'w')
-    out.write(master_head_template)
 
     ntot = 0
     ngood = 0
@@ -437,7 +451,7 @@ def main():
         print '\r{0:<5d} on images / {1:<5d} placed'.format(ngood, ntot),
         sys.stdout.flush()
 
-    out.write("END_OF_SIMLIB\n")
+    out.write("END_OF_SIMLIB:\n")
 
     print "\n{0:<5d} on overlapping fields".format(noverlap)
 
