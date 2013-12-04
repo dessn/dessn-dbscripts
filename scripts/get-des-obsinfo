@@ -38,7 +38,6 @@ TELESCOPE: CTIO
 SURVEY: DES      FILTERS: griz
 USER: username    HOST: hostname
 COMMENT: 'No comment'
-BEGIN LIBGEN
 
 #--------------------------------------------------------------------------
 """
@@ -76,16 +75,17 @@ parser.add_option('-c', '--cache', action='store_true', default=False,
 
 # Definitions for randomly selection positions
 bounds = {'C': (51.2, 55.6, -30.2, -26.0),
-          'X': (33.3, 37.6,  -7.5,  -4.5),
+          'X': (33.3, 37.6,  -7.5,  -3.5),
           'E': ( 6.2, 11.2, -45.1, -41.9),
           'S': (40.0, 44.0,  -2.0,   1.2)}
 
 # Area of each field
+d2r = math.pi/180.  # radians per degree
+r2d = 1./d2r
 areas = {}
 for key, (ra_min, ra_max, dec_min, dec_max) in bounds.items():
-    dec = 0.5 * (dec_min + dec_max)
-    areas[key] = ((ra_max - ra_min) * (dec_max - dec_min) *
-                  math.cos(dec * 3.141592/180.))
+    areas[key] = ((math.sin(dec_max * d2r) - math.sin(dec_min * d2r)) *
+                  (ra_max - ra_min) * d2r) * r2d**2
 
 # weight of each field (percentage of total area)
 totarea = sum(areas.values())
@@ -112,7 +112,10 @@ def get_random_position():
         i += 1
     f = cdf[i][0]
     ra = bounds[f][0] + random.random() * (bounds[f][1] - bounds[f][0])
-    dec = bounds[f][2] + random.random() * (bounds[f][3] - bounds[f][2])
+    dec = r2d * math.asin(math.sin(bounds[f][2]*d2r) +
+                          random.random() *
+                          (math.sin(bounds[f][3]*d2r) -
+                           math.sin(bounds[f][2]*d2r)))
     return ra, dec
 
 
@@ -384,6 +387,7 @@ def main():
             out.write('#{0}\n'.format(msg))
         ntarget = options.n
 
+    out.write('BEGIN LIBGEN\n')
     ntot = 0
     ngood = 0
     noverlap = 0  # keep track of number in overlapping fields
