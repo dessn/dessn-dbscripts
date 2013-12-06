@@ -282,8 +282,10 @@ def main():
         q += "    c.snfake_id=0\n"
         if len(snids) == 0:
             q += "    AND c.num_real >= 2\n"
-        else:
-            q += "    AND c.snid in (" + ", ".join(snids) + ")\n"
+
+    # Get just certain candidates?
+    if len(snids) > 0:
+        q += "    AND c.snid in (" + ", ".join(snids) + ")\n"
 
     # specify cand_type=0 if we didn't request specific candidates:
     if len(snids) == 0 and (not opts.all):
@@ -438,7 +440,11 @@ def main():
         # Turn `None` items into the string 'NULL' for writing to text file.
         for key in meta:
             if meta[key] is None:
-                meta[key] = 'NULL'
+                if key.startswith('num'):  # hack: None in num columns means 0
+                    meta[key] = 0
+                else:
+                    meta[key] = 'NULL'
+
 
         write_lc(finaldata, fname, meta=meta, fmt=opts.format,
                  pedantic=False)
