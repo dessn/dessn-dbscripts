@@ -21,6 +21,7 @@ import sys
 import os
 import glob
 import math
+from textwrap import dedent
 from datetime import datetime
 from optparse import OptionParser
 import time
@@ -195,34 +196,37 @@ def main():
 
     parser = OptionParser(usage='%prog [options] [SNID ...]',
                           description=__doc__)
-    parser.add_option("-n", type="int", default=0,
-                      help="Maximum number of light curves to get. Default is"
-                      " to get all the light curves.")
+    parser.add_option("-n", type="int", default=-1,
+                      help="maximum number of light curves to get (default "
+                      "behaviour is to get all 'good' light curves)")
     parser.add_option("-a", "--all", default=False, action="store_true",
-                      help="Get all candidates, regardless of cand_type. "
-                      "Default is to get only candidates that have "
-                      "cand_type=0 (indicating current, good).")
+                      help="get all candidates, regardless of cand_type "
+                      "(default: get only candidates that have "
+                      "cand_type=0, indicating current, good)")
     parser.add_option("-t", "--table", default='snforce',
-                      help="Table from which to retrieve photometry points. "
-                      "Options: snobs, snforce (default: snforce)")
-    parser.add_option("-f", "--format", default='csv',
-                      help="File format for output. Options: "
-                      "csv [default], json, salt2.")
+                      help="table from which to retrieve photometry points: "
+                      "snobs, snforce (default: snforce)")
+    parser.add_option("--fake", default=False, action='store_true',
+                      help="get light curves for fake candidates (candidates "
+                      "with snfake_id > 0) instead of real ones")
+    parser.add_option("--format", default='csv',
+                      help="file format for output: "
+                      "csv, json, salt2 (default=csv)")
     parser.add_option("-b", "--bandnames", default='g,r,i,z',
-                      help="Comma-separated list of names of the DES "
+                      help="comma-separated list of names of the DES "
                       "g, r, i, z bands, as they should appear in the "
-                      "output files. Example: desg,desr,desi,desz. Default: "
-                      "g,r,i,z.")
+                      "output files. example: 'desg,desr,desi,desz' default: "
+                      "'g,r,i,z'")
     parser.add_option("--mindate", default=None,
-                      help="Minimum candidate entry_date, format: YYYY-MM-DD")
+                      help="minimum candidate entry_date, format: YYYY-MM-DD")
     parser.add_option("--maxdate", default=None,
-                      help="Maximum candidate entry_date, format: YYYY-MM-DD")
+                      help="maximum candidate entry_date, format: YYYY-MM-DD")
     parser.add_option("-o", "--outputdir", default='.',
-                      help="Output directory. Default is current directory.")
+                      help="output directory (default='.')")
     parser.add_option("-c", "--clobber", default=False, action='store_true',
-                      help="Overwrite (refetch) existing files.")
+                      help="overwrite (refetch) existing files")
     parser.add_option("-v", "--verbose", default=False, action='store_true',
-                      help="Print query string for all queries.")
+                      help="print query string for all queries")
 
     opts, args = parser.parse_args(sys.argv[1:])
     snids = args
@@ -237,8 +241,8 @@ def main():
         print "Table must be one of: snforce, snobs"
         sys.exit(1)
 
-    if opts.format not in ['csv', 'snana', 'salt2', 'fits', 'json']:
-        print "Format must be one of: csv, snana, salt2."
+    if opts.format not in ['csv', 'salt2', 'json']:
+        print "Format must be one of: csv, json, salt2."
         sys.exit(1)
     suffix = {'csv': 'dat', 'salt2': 'dat', 'json': 'json'}[opts.format]
 
@@ -252,59 +256,64 @@ def main():
     else:
         bandnames = None
 
-    # Get start time
+    # Get start time & db username
     t0 = time.time()
-
-    # get database username
     user = PasswordGetter().user
 
+    # Create a connection to the database
     conn = desdb.connect(dbname='desoper')
 
-    # Get candidate info from database.
-    # If specific ids are NOT given, get everything marked as "SN"
-    # in the snscan table.
-    q = """
+    # Query for the candidates we want to get
+    q = dedent(
+        """
         SELECT
             c.snid, c.ra, c.dec, c.cand_type, c.cand_desc, c.numepochs,
             c.numobs, c.num_real, c.num_artifact, c.num_unsure,
-            c.num_unscanned, c.entry_date
+            c.num_unscanned, c.entry_date, c.snfake_id
         FROM
             sncand c
         WHERE
-            c.snfake_id=0
-        """
+        """)
 
-    # if specific ids are not given, select all candidates with num_real >= 2.
-    # Otherwise, select just the specific SNIDs requested.
-    if len(snids) == 0:
-        q += "            AND c.num_real >= 2\n"
-        if not opts.all:
-            q += "            AND c.cand_type=0\n"
+    # Get fake candidates or real candidates?
+    if opts.fake:
+        q += "    c.snfake_id>0\n"
     else:
+        q += "    c.snfake_id=0\n"
+        if len(snids) == 0:
+            q += "    AND c.num_real >= 2\n"
+
+    # Get just certain candidates?
+    if len(snids) > 0:
         q += "    AND c.snid in (" + ", ".join(snids) + ")\n"
 
-    # Add date info to query
+    # specify cand_type=0 if we didn't request specific candidates:
+    if len(snids) == 0 and (not opts.all):
+        q += "    AND c.cand_type=0\n"
+
+    # Any specific dates? 
     if opts.mindate is not None:
-        q += "            AND c.entry_date >= date '{}'".format(opts.mindate)
+        q += "    AND c.entry_date >= date '{}'\n".format(opts.mindate)
     if opts.maxdate is not None:
-        q += "            AND c.entry_date <= date '{}'".format(opts.maxdate)
+        q += "    AND c.entry_date <= date '{}'\n".format(opts.maxdate)
 
-    q += "        ORDER BY c.snid"
+    # Maximum number of candidates to retrieve?
+    if opts.n >= 0:
+        q += "    AND rownum <= {:d}\n".format(opts.n)
 
+    q += "ORDER BY c.snid"
     if opts.verbose:
-        print "CANDIDATE QUERY:"
-        print q + "\n"
-
+        print 79 * '='
+        print "candidate query:"
+        print 79 * '='
+        print q
+        print ""
     cands = conn.quick(q)
-        
     ncands = len(cands)
-    if opts.n > 0:
-        maxn = opts.n
-    else:
-        maxn = ncands
 
     print '',
-    for i in range(maxn):
+    nempty = 0
+    for i in range(len(cands)):
 
         cand = cands[i]
         fname = '{}/des{:08d}.{}'.format(outdir, cand['snid'], suffix)
@@ -352,8 +361,14 @@ def main():
             q = q.format(ra - dra, ra + dra, dec - ddec, dec + ddec)
  
         if opts.verbose:
-            print q
+            print ''
+            print 79 * '-'
+            print dedent(q)
         data = conn.quick(q, array=True)
+
+        if len(data) == 0:
+            nempty += 1
+            continue
 
         # Get just the latest image ID for each exposure (expnum)
         # This counts on the data being ordered by (expnum, image_id).
@@ -415,7 +430,7 @@ def main():
                 AND g.host = 1
             """.format(cand['snid'])
         if opts.verbose:
-            print q
+            print dedent(q)
         gals = conn.quick(q)
         if len(gals) == 1:
             meta.update(gals[0])
@@ -430,13 +445,19 @@ def main():
         # Turn `None` items into the string 'NULL' for writing to text file.
         for key in meta:
             if meta[key] is None:
-                meta[key] = 'NULL'
+                if key.startswith('num'):  # hack: None in num columns means 0
+                    meta[key] = 0
+                else:
+                    meta[key] = 'NULL'
+
 
         write_lc(finaldata, fname, meta=meta, fmt=opts.format,
                  pedantic=False)
 
     elapsed = time.time() - t0
-    print "\nTotal time: {:d}m{:06.3f}s".format(int(elapsed) / 60, elapsed % 60)
+    if nempty > 0:
+        print "\n{:d} snids missing photometry were skipped".format(nempty),
+    print "\nTotal time: {:d}m{:04.1f}s".format(int(elapsed) / 60, elapsed % 60)
 
 if __name__ == '__main__':
     main()
