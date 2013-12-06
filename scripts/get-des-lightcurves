@@ -312,6 +312,7 @@ def main():
     ncands = len(cands)
 
     print '',
+    nempty = 0
     for i in range(len(cands)):
 
         cand = cands[i]
@@ -364,6 +365,10 @@ def main():
             print 79 * '-'
             print dedent(q)
         data = conn.quick(q, array=True)
+
+        if len(data) == 0:
+            nempty += 1
+            continue
 
         # Get just the latest image ID for each exposure (expnum)
         # This counts on the data being ordered by (expnum, image_id).
@@ -450,7 +455,9 @@ def main():
                  pedantic=False)
 
     elapsed = time.time() - t0
-    print "\nTotal time: {:d}m{:06.3f}s".format(int(elapsed) / 60, elapsed % 60)
+    if nempty > 0:
+        print "\n{:d} snids missing photometry were skipped".format(nempty),
+    print "\nTotal time: {:d}m{:04.1f}s".format(int(elapsed) / 60, elapsed % 60)
 
 if __name__ == '__main__':
     main()
