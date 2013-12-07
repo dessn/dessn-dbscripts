@@ -263,25 +263,37 @@ def main():
     # Create a connection to the database
     conn = desdb.connect(dbname='desoper')
 
-    # Query for the candidates we want to get
-    q = dedent(
-        """
-        SELECT
-            c.snid, c.ra, c.dec, c.cand_type, c.cand_desc, c.numepochs,
-            c.numobs, c.num_real, c.num_artifact, c.num_unsure,
-            c.num_unscanned, c.entry_date, c.snfake_id
-        FROM
-            sncand c
-        WHERE
-        """)
-
-    # Get fake candidates or real candidates?
-    if opts.fake:
-        q += "    c.snfake_id>0\n"
-    else:
-        q += "    c.snfake_id=0\n"
+    # Query for real candidates:
+    if not opts.fake:
+        q = dedent(
+            """
+            SELECT
+                c.snid, c.ra, c.dec, c.cand_type, c.cand_desc, c.numepochs,
+                c.numobs, c.num_real, c.num_artifact, c.num_unsure,
+                c.num_unscanned, c.entry_date, c.snfake_id as fake_id
+            FROM
+                sncand c
+            WHERE
+                c.snfake_id=0
+            """)
         if len(snids) == 0:
             q += "    AND c.num_real >= 2\n"
+
+    # Query for fake candidates:
+    else:
+        q = dedent(
+            """
+            SELECT
+                c.snid, c.ra, c.dec, c.cand_type, c.cand_desc, c.numepochs,
+                c.numobs, c.num_real, c.num_artifact, c.num_unsure,
+                c.num_unscanned, c.entry_date, c.snfake_id as fake_id,
+                f.galid as fake_galid, f.z as fake_z
+            FROM
+                sncand c, snfake f
+            WHERE
+                c.snfake_id>0
+                AND c.snfake_id=f.id
+            """)
 
     # Get just certain candidates?
     if len(snids) > 0:
