@@ -104,7 +104,7 @@ def _write_salt2(f, data, meta, **kwargs):
             if not raw:
                 key = key.upper()
                 key = KEY_TO_SALT2KEY_META.get(key, key)
-            f.write('@{} {}\n'.format(key, str(val)))
+            f.write('@{0} {1}\n'.format(key, str(val)))
 
     keys = data.dtype.names
     length = len(data)
@@ -115,7 +115,7 @@ def _write_salt2(f, data, meta, **kwargs):
         if not raw:
             key = key.capitalize()
             key = KEY_TO_SALT2KEY_COLUMN.get(key, key)
-        f.write('#{} :\n'.format(key))
+        f.write('#{0} :\n'.format(key))
         keys_as_written.append(key)
     f.write('#end :\n')
 
@@ -178,7 +178,7 @@ def write_lc(data, fname, meta=None, fmt='csv', **kwargs):
     """
 
     if fmt not in WRITERS:
-        raise ValueError("Writer not defined for format '{}'. Options: "
+        raise ValueError("Writer not defined for format '{0}'. Options: "
                          .format(fmt) + ", ".join(WRITERS.keys()))
 
     if not isinstance(data, np.ndarray):
@@ -305,13 +305,13 @@ def main():
 
     # Any specific dates? 
     if opts.mindate is not None:
-        q += "    AND c.entry_date >= date '{}'\n".format(opts.mindate)
+        q += "    AND c.entry_date >= date '{0}'\n".format(opts.mindate)
     if opts.maxdate is not None:
-        q += "    AND c.entry_date <= date '{}'\n".format(opts.maxdate)
+        q += "    AND c.entry_date <= date '{0}'\n".format(opts.maxdate)
 
     # Maximum number of candidates to retrieve?
     if opts.n >= 0:
-        q += "    AND rownum <= {:d}\n".format(opts.n)
+        q += "    AND rownum <= {0:d}\n".format(opts.n)
 
     q += "ORDER BY c.snid"
     if opts.verbose:
@@ -328,11 +328,12 @@ def main():
     for i in range(len(cands)):
 
         cand = cands[i]
-        fname = '{}/des{:08d}.{}'.format(outdir, cand['snid'], suffix)
+        fname = '{0}/des{1:08d}.{2}'.format(outdir, cand['snid'], suffix)
         if not opts.clobber and os.path.exists(fname):
             continue
 
-        print '\rsnid={:8d} ({:6d}/{:6d})'.format(cand['snid'], i+1, ncands),
+        print '\rsnid ={0:8d} ({1:6d}/{2:6d})'.format(cand['snid'], i+1,
+                                                      ncands),
         sys.stdout.flush()
 
         if opts.table == 'snforce':
@@ -343,9 +344,9 @@ def main():
             FROM
                 exposure e, snforce f, image i
             WHERE
-                f.sncand_id={:d}
-                AND i.id=f.image_id
-                AND e.id=i.exposureid
+                 f.sncand_id = {0:d}
+                AND i.id = f.image_id
+                AND e.id = i.exposureid
             ORDER BY
                 e.expnum, f.image_id
             """.format(cand['snid'])
@@ -358,8 +359,8 @@ def main():
             FROM
                 exposure e, snobs o
             WHERE
-                o.ra between {:f} and {:f}
-                AND o.dec between {:f} and {:f}
+                o.ra between {0:f} and {1:f}
+                AND o.dec between {2:f} and {3:f}
                 AND o.exposureid=e.expnum
             ORDER BY
                 e.expnum
@@ -381,6 +382,31 @@ def main():
         if len(data) == 0:
             nempty += 1
             continue
+
+        # For fakes, query the snfakeimg table to see if a fake was actually
+        # placed on each image. There is a slight hack here: the photometry
+        # data is on coadds, but fakes are placed on individual exposures.
+        # Here, we are effectively checking if a fake was placed on the
+        # first exposure in the coadd.
+        if opts.fake:
+            q = ("select expnum from snfakeimg where snfake_id={0:d}"
+                 .format(cand['fake_id']))
+            expnums_placed = conn.quick(q, array=True)['expnum'].tolist()
+            
+            # Match to data
+            fake_placed = np.zeros(data.shape, dtype=np.int)
+            for i in range(len(data)):
+                if data['expnum'][i] in expnums_placed:
+                    fake_placed[i] = 1
+
+            # Join arrays.
+            new_dtype = [(name, data.dtype[name]) for name in data.dtype.names]
+            new_dtype.append(('fake_placed', np.int))
+            newdata = np.empty(len(data), dtype=new_dtype)
+            for name in data.dtype.names:
+                newdata[name] = data[name]
+            newdata['fake_placed'] = fake_placed
+            data = newdata
 
         # Get just the latest image ID for each exposure (expnum)
         # This counts on the data being ordered by (expnum, image_id).
@@ -417,6 +443,8 @@ def main():
                            ('expnum', data['expnum'])])
         if opts.table == 'snforce':
             finaldata['image_id'] = data['image_id']
+        if opts.fake:
+            finaldata['fake_placed'] = data['fake_placed']
 
         # Create metadata.
         meta = odict()
@@ -438,7 +466,7 @@ def main():
             FROM
                 sngals g
             WHERE
-                g.snid = {:d}
+                g.snid = {0:d}
                 AND g.host = 1
             """.format(cand['snid'])
         if opts.verbose:
@@ -468,8 +496,9 @@ def main():
 
     elapsed = time.time() - t0
     if nempty > 0:
-        print "\n{:d} snids missing photometry were skipped".format(nempty),
-    print "\nTotal time: {:d}m{:04.1f}s".format(int(elapsed) / 60, elapsed % 60)
+        print "\n{0:d} snids missing photometry were skipped".format(nempty),
+    print "\nTotal time: {0:d}m{1:05.2f}s".format(int(elapsed) / 60,
+                                                  elapsed % 60)
 
 if __name__ == '__main__':
     main()
