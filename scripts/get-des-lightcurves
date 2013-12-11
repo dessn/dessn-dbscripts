@@ -287,11 +287,13 @@ def main():
                 c.snid, c.ra, c.dec, c.cand_type, c.cand_desc, c.numepochs,
                 c.numobs, c.num_real, c.num_artifact, c.num_unsure,
                 c.num_unscanned, c.entry_date, c.snfake_id as fake_id,
-                f.galid as fake_galid, f.z as fake_z
+                f.galid as fake_galid, f.z as fake_z,
+                f.peakmjd as fake_peakmjd, f.host_angsep as fake_hostsep,
+                f.hostmag_i as fake_hostmag_i
             FROM
                 sncand c, snfake f
             WHERE
-                c.snfake_id>0
+                c.snfake_id>100000
                 AND c.snfake_id=f.id
             """)
 
