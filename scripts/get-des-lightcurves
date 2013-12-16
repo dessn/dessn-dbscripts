@@ -221,6 +221,10 @@ def main():
                       help="minimum candidate entry_date, format: YYYY-MM-DD")
     parser.add_option("--maxdate", default=None,
                       help="maximum candidate entry_date, format: YYYY-MM-DD")
+    parser.add_option("--minfakeid", default=-1, type="int",
+                      help="minimum fake_id (only effective with --fake flag)")
+    parser.add_option("--maxfakeid", default=-1, type="int",
+                      help="maximum fake_id (only effective with --fake flag)")
     parser.add_option("-o", "--outputdir", default='.',
                       help="output directory (default='.')")
     parser.add_option("-c", "--clobber", default=False, action='store_true',
@@ -296,6 +300,10 @@ def main():
                 c.snfake_id>0
                 AND c.snfake_id=f.id
             """)
+        if opts.minfakeid >= 0:
+            q += "    AND c.snfake_id >= {0:d}".format(opts.minfakeid)
+        if opts.maxfakeid >= 0:
+            q += "    AND c.snfake_id <= {0:d}".format(opts.maxfakeid)
 
     # Get just certain candidates?
     if len(snids) > 0:
@@ -341,8 +349,8 @@ def main():
         if opts.table == 'snforce':
             q = """
             SELECT
-                substr(e.object, 22, 2) field, e.band, e.mjd_obs, f.flux,
-                f.flux_err, f.status, e.expnum, f.image_id
+                substr(e.object, 22, 2) field, e.band, e.mjd_obs,
+                f.flux, f.flux_err, f.status, e.expnum, f.image_id
             FROM
                 exposure e, snforce f, image i
             WHERE
@@ -356,8 +364,8 @@ def main():
         elif opts.table == 'snobs':
             q = """
             SELECT
-                substr(e.object, 22, 2) field, e.band, e.mjd_obs, o.flux,
-                o.flux_err, o.mag, o.status, e.expnum
+                substr(e.object, 22, 2) field, e.band, e.mjd_obs,
+                o.flux, o.flux_err, o.mag, o.status, e.expnum
             FROM
                 exposure e, snobs o
             WHERE
@@ -391,23 +399,47 @@ def main():
         # Here, we are effectively checking if a fake was placed on the
         # first exposure in the coadd.
         if opts.fake:
-            q = ("select expnum from snfakeimg where snfake_id={0:d}"
-                 .format(cand['fake_id']))
-            expnums_placed = conn.quick(q, array=True)['expnum'].tolist()
+            q = dedent("""
+            SELECT
+                fi.expnum, fi.truemag as fake_truemag,
+                oi.chip_zero_point, oi.chip_zero_point_rms
+            FROM
+                snfakeimg fi inner join snobsinfo oi on
+                fi.expnum = oi.expnum and fi.ccdnum=oi.ccdnum
+            WHERE
+                snfake_id={0:d} and oi.tile=0
+            """).format(cand['fake_id'])
+            extradata = conn.quick(q, array=True)
             
-            # Match to data
-            fake_placed = np.zeros(data.shape, dtype=np.int)
-            for i in range(len(data)):
-                if data['expnum'][i] in expnums_placed:
-                    fake_placed[i] = 1
-
-            # Join arrays.
+            # Create new (joined) array
             new_dtype = [(name, data.dtype[name]) for name in data.dtype.names]
             new_dtype.append(('fake_placed', np.int))
+            for name in ['fake_truemag', 'chip_zero_point',
+                         'chip_zero_point_rms']:
+                new_dtype.append((name, extradata.dtype[name]))
             newdata = np.empty(len(data), dtype=new_dtype)
-            for name in data.dtype.names:
+
+            # Fill the new array
+            for name in data.dtype.names:   # original values
                 newdata[name] = data[name]
-            newdata['fake_placed'] = fake_placed
+
+            # Fill "optional" info
+            for i in range(len(data)):
+                idx = np.flatnonzero(data['expnum'][i] == extradata['expnum'])
+                if len(idx) == 0:
+                    newdata['fake_placed'][i] = 0
+                    newdata['fake_truemag'][i] = 0.
+                    newdata['chip_zero_point'][i] = 0.
+                    newdata['chip_zero_point_rms'][i] = 0.
+                else:
+                    j = idx[0] # should be only one match
+                    newdata['fake_placed'][i] = 1
+                    newdata['fake_truemag'][i] = extradata['fake_truemag'][j]
+                    newdata['chip_zero_point'][i] = \
+                        extradata['chip_zero_point'][j]
+                    newdata['chip_zero_point_rms'][i] = \
+                        extradata['chip_zero_point_rms'][j]
+
             data = newdata
 
         # Get just the latest image ID for each exposure (expnum)
@@ -434,6 +466,8 @@ def main():
         elif opts.table == 'snobs':
             zp = data['mag'] + 2.5 * np.log10(data['flux'])
 
+        # TODO: make this more automated (so that fields in 'finaldata' don't
+        #       have to be explicitly specified).
         finaldata = odict([('time', data['mjd_obs']),
                            ('field', data['field']),
                            ('band', band),
@@ -447,6 +481,9 @@ def main():
             finaldata['image_id'] = data['image_id']
         if opts.fake:
             finaldata['fake_placed'] = data['fake_placed']
+            finaldata['fake_truemag'] = data['fake_truemag']
+            finaldata['chip_zero_point'] = data['chip_zero_point']
+            finaldata['chip_zero_point_rms'] = data['chip_zero_point_rms']
 
         # Create metadata.
         meta = odict()
