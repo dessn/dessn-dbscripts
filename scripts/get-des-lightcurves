@@ -293,7 +293,7 @@ def main():
             FROM
                 sncand c, snfake f
             WHERE
-                c.snfake_id>100000
+                c.snfake_id>0
                 AND c.snfake_id=f.id
             """)
 
