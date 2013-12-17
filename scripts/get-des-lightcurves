@@ -210,6 +210,8 @@ def main():
     parser.add_option("--fake", default=False, action='store_true',
                       help="get light curves for fake candidates (candidates "
                       "with snfake_id > 0) instead of real ones")
+    parser.add_option("--infile", default=None,
+                      help="Read SNIDs from this file instead of arguments.")
     parser.add_option("--format", default='csv',
                       help="file format for output: "
                       "csv, json, salt2 (default=csv)")
@@ -234,7 +236,12 @@ def main():
                       help="print query string for all queries")
 
     opts, args = parser.parse_args(sys.argv[1:])
-    snids = args
+
+    if opts.infile is not None:
+        with open(opts.infile, 'r') as f:
+            snids = f.read().split()
+    else:
+        snids = args
     
     outdir = opts.outputdir
     if not os.path.exists(outdir):
