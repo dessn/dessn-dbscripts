@@ -38,6 +38,7 @@ try:
 except ImportError:
     from desdb import PasswordGetter # old location in desdb
 
+
 def dict_to_array(d):
     """Convert a dictionary of lists (of equal length) to a numpy array."""
 
@@ -348,20 +349,47 @@ def main():
 
         if opts.table == 'snforce':
             q = """
-            SELECT
-                substr(e.object, 22, 2) field, e.band, e.mjd_obs,
-                f.flux, f.flux_err, f.status, e.expnum, f.image_id
-            FROM
-                exposure e, snforce f, image i
-            WHERE
-                 f.sncand_id = {0:d}
-                AND i.id = f.image_id
-                AND e.id = i.exposureid
-            ORDER BY
-                e.expnum, f.image_id
-            """.format(cand['snid'])
+                SELECT
+                    substr(e.object, 22, 2) field, i.ccd as ccdnum, e.band,
+                    e.mjd_obs, f.flux, f.flux_err, f.status, e.expnum,
+                    f.image_id
+                FROM
+                    exposure e, snforce f, image i
+                WHERE
+                     f.sncand_id = {0:d}
+                    AND i.id = f.image_id
+                    AND e.id = i.exposureid
+                ORDER BY
+                    e.expnum, f.image_id
+                """.format(cand['snid'])
+
+            if opts.fake:
+                # For fakes, we want to include a few more columns by
+                # matching to other tables. This has to be
+                # implemented as a sub-query because we need to match to
+                # the snobsinfo table based on *both* expnum and ccdnum
+                # and these values come from two different tables
+                q = """
+                SELECT
+                    ph.field, ph.band, ph.ccdnum, ph.mjd_obs, ph.flux,
+                    ph.flux_err,
+                    ph.status, ph.expnum, ph.image_id,
+                    fi.truemag as fake_truemag, oi.chip_zero_point,
+                    oi.chip_zero_point_rms
+                FROM
+                    ({0}) ph left outer join snobsinfo oi
+                        on oi.expnum = ph.expnum and oi.ccdnum = ph.ccdnum
+                    left outer join
+                    (SELECT truemag, expnum from snfakeimg where snfake_id = {1:d}) fi
+                    on fi.expnum = ph.expnum
+                """.format(q, cand['fake_id'])
 
         elif opts.table == 'snobs':
+            boxrad = 1.08 / 3600.
+            ra = cand['ra']
+            dec = cand['dec']
+            dra = boxrad * math.cos(dec * math.pi/180.)
+            ddec = boxrad
             q = """
             SELECT
                 substr(e.object, 22, 2) field, e.band, e.mjd_obs,
@@ -374,73 +402,22 @@ def main():
                 AND o.exposureid=e.expnum
             ORDER BY
                 e.expnum
-            """
-
-            boxrad = 1.08 / 3600.
-            ra = cand['ra']
-            dec = cand['dec']
-            dra = boxrad * math.cos(dec * math.pi/180.)
-            ddec = boxrad
-            q = q.format(ra - dra, ra + dra, dec - ddec, dec + ddec)
+            """.format(ra - dra, ra + dra, dec - ddec, dec + ddec)
  
         if opts.verbose:
             print ''
             print 79 * '-'
             print dedent(q)
+
         data = conn.quick(q, array=True)
+        #print ''
+        #for row in data: print row
+        #exit()
+        #print data
 
         if len(data) == 0:
             nempty += 1
             continue
-
-        # For fakes, query the snfakeimg table to see if a fake was actually
-        # placed on each image. There is a slight hack here: the photometry
-        # data is on coadds, but fakes are placed on individual exposures.
-        # Here, we are effectively checking if a fake was placed on the
-        # first exposure in the coadd.
-        if opts.fake:
-            q = dedent("""
-            SELECT
-                fi.expnum, fi.truemag as fake_truemag,
-                oi.chip_zero_point, oi.chip_zero_point_rms
-            FROM
-                snfakeimg fi inner join snobsinfo oi on
-                fi.expnum = oi.expnum and fi.ccdnum=oi.ccdnum
-            WHERE
-                snfake_id={0:d} and oi.tile=0
-            """).format(cand['fake_id'])
-            extradata = conn.quick(q, array=True)
-            
-            # Create new (joined) array
-            new_dtype = [(name, data.dtype[name]) for name in data.dtype.names]
-            new_dtype.append(('fake_placed', np.int))
-            for name in ['fake_truemag', 'chip_zero_point',
-                         'chip_zero_point_rms']:
-                new_dtype.append((name, extradata.dtype[name]))
-            newdata = np.empty(len(data), dtype=new_dtype)
-
-            # Fill the new array
-            for name in data.dtype.names:   # original values
-                newdata[name] = data[name]
-
-            # Fill "optional" info
-            for i in range(len(data)):
-                idx = np.flatnonzero(data['expnum'][i] == extradata['expnum'])
-                if len(idx) == 0:
-                    newdata['fake_placed'][i] = 0
-                    newdata['fake_truemag'][i] = 0.
-                    newdata['chip_zero_point'][i] = 0.
-                    newdata['chip_zero_point_rms'][i] = 0.
-                else:
-                    j = idx[0] # should be only one match
-                    newdata['fake_placed'][i] = 1
-                    newdata['fake_truemag'][i] = extradata['fake_truemag'][j]
-                    newdata['chip_zero_point'][i] = \
-                        extradata['chip_zero_point'][j]
-                    newdata['chip_zero_point_rms'][i] = \
-                        extradata['chip_zero_point_rms'][j]
-
-            data = newdata
 
         # Get just the latest image ID for each exposure (expnum)
         # This counts on the data being ordered by (expnum, image_id).
@@ -480,7 +457,6 @@ def main():
         if opts.table == 'snforce':
             finaldata['image_id'] = data['image_id']
         if opts.fake:
-            finaldata['fake_placed'] = data['fake_placed']
             finaldata['fake_truemag'] = data['fake_truemag']
             finaldata['chip_zero_point'] = data['chip_zero_point']
             finaldata['chip_zero_point_rms'] = data['chip_zero_point_rms']
