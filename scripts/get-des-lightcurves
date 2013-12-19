@@ -458,6 +458,7 @@ def main():
         finaldata = odict([('time', data['mjd_obs']),
                            ('field', data['field']),
                            ('band', band),
+                           ('ccdnum', data['ccdnum']),
                            ('flux', data['flux']),
                            ('fluxerr', data['flux_err']),
                            ('zp', zp),
@@ -487,6 +488,7 @@ def main():
             SELECT
                 g.photoz as host_photoz, g.photoz_err as host_photoz_err,
                 g.specz as host_specz, g.specz_err as host_specz_err,
+                g.specz_catalog as host_specz_catalog,
                 g.separation as host_separation
             FROM
                 sngals g
@@ -502,10 +504,11 @@ def main():
         elif len(gals) == 0:
             meta.update({'host_photoz': None, 'host_photoz_err': None,
                          'host_specz': None, 'host_specz_err': None,
+                         'host_specz_catalog': None,
                          'host_separation': None})
         elif len(gals) > 1:
             raise RuntimeError('More than one matching SNGALS entry with '
-                               'HOST=1')
+                               'HOST=1 for SNID=' + str(cand['snid']))
 
         # Turn `None` items into the string 'NULL' for writing to text file.
         for key in meta:
