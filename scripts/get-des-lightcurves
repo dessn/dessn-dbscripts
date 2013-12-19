@@ -359,7 +359,7 @@ def main():
                 SELECT
                     substr(e.object, 22, 2) field, i.ccd as ccdnum, e.band,
                     e.mjd_obs, f.flux, f.flux_err, f.status, e.expnum,
-                    f.image_id
+                    f.image_id, i.imagetype
                 FROM
                     exposure e, snforce f, image i
                 WHERE
@@ -370,6 +370,10 @@ def main():
                     e.expnum, f.image_id
                 """.format(cand['snid'])
 
+                    #ph.field, ph.band, ph.ccdnum,
+                    #ph.mjd_obs, ph.flux, ph.flux_err,
+                    #ph.status, ph.expnum, ph.image_id, ph.imagetype,
+
             if opts.fake:
                 # For fakes, we want to include a few more columns by
                 # matching to other tables. This has to be
@@ -378,10 +382,9 @@ def main():
                 # and these values come from two different tables
                 q = """
                 SELECT
-                    ph.field, ph.band, ph.ccdnum, ph.mjd_obs, ph.flux,
-                    ph.flux_err,
-                    ph.status, ph.expnum, ph.image_id,
-                    fi.truemag as fake_truemag, oi.chip_zero_point,
+                    ph.*,
+                    fi.truemag as fake_truemag,
+                    oi.chip_zero_point,
                     oi.chip_zero_point_rms
                 FROM
                     ({0}) ph
@@ -392,6 +395,8 @@ def main():
                     left outer join snfakeimg fi
                         on fi.expnum = ph.expnum
                         and fi.snfake_id = {1:d}
+                ORDER BY
+                    ph.expnum, ph.image_id
                 """.format(q, cand['fake_id'])
 
         elif opts.table == 'snobs':
@@ -439,10 +444,24 @@ def main():
             indicies_to_use.append(len(data)-1)
             data = data[indicies_to_use]
 
+            # Temporary hack: Sometimes forced photometry was mistakenly
+            # run on diff_single_diff imagetypes when a diff_nitecmb_diff
+            # image was available. This was fixed in Fall 2013 (at some point)
+            # TODO: remove this hack once snforce table is cleaned in off-
+            # season.
+            # Mask rows where imagetype = 'diff_single_diff' that are from
+            # deep fields or z band.
+            mask = (
+                (data['imagetype'] == 'diff_single_diff') &
+                (np.char.endswith(data['field'], '3') | (data['band'] == 'z'))
+                )
+            data = data[~mask]
+
+
         # Convert band names, if requested.
         if bandnames is None:
             band = data['band']
-        if bandnames is not None:
+        else:
             band = []
             for b in data['band']:
                 band.append(bandnames[b])
