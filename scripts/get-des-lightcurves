@@ -384,11 +384,14 @@ def main():
                     fi.truemag as fake_truemag, oi.chip_zero_point,
                     oi.chip_zero_point_rms
                 FROM
-                    ({0}) ph left outer join snobsinfo oi
-                        on oi.expnum = ph.expnum and oi.ccdnum = ph.ccdnum
-                    left outer join
-                    (SELECT truemag, expnum from snfakeimg where snfake_id = {1:d}) fi
-                    on fi.expnum = ph.expnum
+                    ({0}) ph
+                    left outer join snobsinfo oi
+                        on oi.expnum = ph.expnum
+                        and oi.ccdnum = ph.ccdnum
+                        and oi.tile = 0
+                    left outer join snfakeimg fi
+                        on fi.expnum = ph.expnum
+                        and fi.snfake_id = {1:d}
                 """.format(q, cand['fake_id'])
 
         elif opts.table == 'snobs':
