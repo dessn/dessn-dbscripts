@@ -370,10 +370,6 @@ def main():
                     e.expnum, f.image_id
                 """.format(cand['snid'])
 
-                    #ph.field, ph.band, ph.ccdnum,
-                    #ph.mjd_obs, ph.flux, ph.flux_err,
-                    #ph.status, ph.expnum, ph.image_id, ph.imagetype,
-
             if opts.fake:
                 # For fakes, we want to include a few more columns by
                 # matching to other tables. This has to be
@@ -477,7 +473,6 @@ def main():
         finaldata = odict([('time', data['mjd_obs']),
                            ('field', data['field']),
                            ('band', band),
-                           ('ccdnum', data['ccdnum']),
                            ('flux', data['flux']),
                            ('fluxerr', data['flux_err']),
                            ('zp', zp),
@@ -486,10 +481,11 @@ def main():
                            ('expnum', data['expnum'])])
         if opts.table == 'snforce':
             finaldata['image_id'] = data['image_id']
-        if opts.fake:
-            finaldata['fake_truemag'] = data['fake_truemag']
-            finaldata['chip_zero_point'] = data['chip_zero_point']
-            finaldata['chip_zero_point_rms'] = data['chip_zero_point_rms']
+            finaldata['ccdnum'] = data['ccdnum']
+            if opts.fake:
+                finaldata['fake_truemag'] = data['fake_truemag']
+                finaldata['chip_zero_point'] = data['chip_zero_point']
+                finaldata['chip_zero_point_rms'] = data['chip_zero_point_rms']
 
         # Create metadata.
         meta = odict()
