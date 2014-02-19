@@ -56,8 +56,8 @@ head_comment = """\
 #     MJD      IDEXPT  FLT GAIN NOISE  SKYSIG  (pixels)  RATIO ZPTAVG ZPTSIG    MAG
 """    
 
-line_template = ('S: {0:9.3f} {1:10d} {2:1s} {3:5.2f} {4:5.2f} {5:7.2f}  '
-                 '{6:4.2f} {7:4.2f} {8:5.3f} {9:6.2f} {10:6.3f} {11:7.3f}\n')
+line_template = ('{0}: {1:9.3f} {2:10d} {3:1s} {4:5.2f} {5:5.2f} {6:7.2f}  '
+                 '{7:4.2f} {8:4.2f} {9:5.3f} {10:6.2f} {11:6.3f} {12:7.3f}\n')
 
 cache_filename = 'des-obsinfo-cache.npy'
 
@@ -434,8 +434,18 @@ def main():
                     out.write(head_comment)
 
                 for j in range(len(fielddata)):
+
+                    # Hack to mark entries with zp=99.99 with X
+                    # Such entries exist in the DB due to either a bug that
+                    # was fixed in doFake or are meant to represent "no data"
+                    # in cases where the conditions are so poor that a zp
+                    # could not be determined.
+                    zp = float(fielddata['chip_zero_point'][j])
+                    marker = 'X' if abs(zp - 99.99) < 0.01 else 'S'
+
                     out.write(
                         line_template.format(
+                            marker,
                             float(fielddata['mjd_obs'][j]),
                             int(fielddata['expnum'][j]),
                             str(fielddata['band'][j]),
@@ -445,7 +455,7 @@ def main():
                             float(fielddata['psf_nea'][j]),
                             0.,
                             0.,
-                            float(fielddata['chip_zero_point'][j]),
+                            zp,
                             float(fielddata['chip_zero_point_rms'][j]),
                             99.)
                         )
