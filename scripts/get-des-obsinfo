@@ -310,7 +310,7 @@ def main():
             indicies_to_use.append(i-1)
     indicies_to_use.append(len(data)-1)
     data = data[indicies_to_use]
-    msg = "{0:d} records after trimming duplicate runs".format(len(data))
+    msg = "HACK: {0:d} records after trimming duplicate runs".format(len(data))
     print msg
     out.write('#{0}\n'.format(msg))
 
@@ -318,14 +318,29 @@ def main():
     # This is necessary because there were some -9's written to the database.
     mask = data['psf_nea'] > 0.
     data = data[mask]
-    msg = ("{0:d} records after trimming entries with PSF_NEA < 0"
+    msg = ("HACK: {0:d} records after trimming entries with PSF_NEA < 0"
            .format(len(data)))
+    print msg
+    out.write('#{0}\n'.format(msg))
 
     # Hack to cut crazy zeropoint RMS values, including nan
     mask = data['chip_zero_point_rms'] <= 0.5
     data = data[mask]
-    msg = ("{0:d} records after trimming entries with "
+    msg = ("HACK: {0:d} records after trimming entries with "
            "CHIP_ZERO_POINT_RMS > 0.5".format(len(data)))
+    print msg
+    out.write('#{0}\n'.format(msg))
+
+    # Hack to cut entries with zp=99.99
+    # Such entries exist in the DB due to either
+    # (1) a bug (that was later fixed) in doFake
+    # (2) representation of "no data" in cases where the conditions are
+    #     so poor that a zp could not be determined.
+    # It is unclear which is the case at the time of this writing.
+    mask = np.abs(data['chip_zero_point'] - 99.99) > 0.001
+    data = data[mask]
+    msg = ("HACK: {0:d} records after trimming entries with "
+           "CHIP_ZERO_POINT = 99.99".format(len(data)))
     print msg
     out.write('#{0}\n'.format(msg))
 
@@ -434,18 +449,9 @@ def main():
                     out.write(head_comment)
 
                 for j in range(len(fielddata)):
-
-                    # Hack to mark entries with zp=99.99 with X
-                    # Such entries exist in the DB due to either a bug that
-                    # was fixed in doFake or are meant to represent "no data"
-                    # in cases where the conditions are so poor that a zp
-                    # could not be determined.
-                    zp = float(fielddata['chip_zero_point'][j])
-                    marker = 'X' if abs(zp - 99.99) < 0.01 else 'S'
-
                     out.write(
                         line_template.format(
-                            marker,
+                            'S',
                             float(fielddata['mjd_obs'][j]),
                             int(fielddata['expnum'][j]),
                             str(fielddata['band'][j]),
@@ -455,7 +461,7 @@ def main():
                             float(fielddata['psf_nea'][j]),
                             0.,
                             0.,
-                            zp,
+                            float(fielddata['chip_zero_point'][j]),
                             float(fielddata['chip_zero_point_rms'][j]),
                             99.)
                         )
