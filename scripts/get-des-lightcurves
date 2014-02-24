@@ -359,40 +359,58 @@ def main():
                 SELECT
                     substr(e.object, 22, 2) field, i.ccd as ccdnum, e.band,
                     e.mjd_obs, f.flux, f.flux_err, f.status, e.expnum,
-                    f.image_id, i.imagetype
+                    f.image_id, i.imagetype, i.run
                 FROM
                     exposure e, snforce f, image i
                 WHERE
-                     f.sncand_id = {0:d}
+                    f.sncand_id = {0:d}
                     AND i.id = f.image_id
                     AND e.id = i.exposureid
                 ORDER BY
                     e.expnum, f.image_id
                 """.format(cand['snid'])
 
-            if opts.fake:
-                # For fakes, we want to include a few more columns by
-                # matching to other tables. This has to be
-                # implemented as a sub-query because we need to match to
-                # the snobsinfo table based on *both* expnum and ccdnum
-                # and these values come from two different tables
-                q = """
+            # Get more information from the snobsinfo table.  This has
+            # to be implemented as a sub-query because we need to
+            # `left outer join` to the snobsinfo table based on *both*
+            # expnum and ccdnum and these values come from two
+            # different tables.
+
+            q = """
                 SELECT
                     ph.*,
-                    fi.truemag as fake_truemag,
+                    oi.psf_nea,
+                    oi.chip_sigsky,
                     oi.chip_zero_point,
                     oi.chip_zero_point_rms
                 FROM
                     ({0}) ph
                     left outer join snobsinfo oi
                         on oi.expnum = ph.expnum
-                        and oi.ccdnum = ph.ccdnum
                         and oi.tile = 0
-                    left outer join snfakeimg fi
-                        on fi.expnum = ph.expnum
-                        and fi.snfake_id = {1:d}
+                        and oi.ccdnum = ph.ccdnum
+                        and oi.band = ph.band
+                        and oi.run = ph.run
                 ORDER BY
                     ph.expnum, ph.image_id
+                """.format(q)
+
+
+            if opts.fake:
+                # For fakes, we want to include the true mag of the fake
+                # so we have to additionally left-match to the snfakeimg
+                # table.
+                q = """
+                SELECT
+                    q.*,
+                    fi.truemag as fake_truemag,
+                FROM
+                    ({0}) q
+                    left outer join snfakeimg fi
+                        on fi.expnum = q.expnum
+                        and fi.snfake_id = {1:d}
+                ORDER BY
+                    q.expnum, q.image_id
                 """.format(q, cand['fake_id'])
 
         elif opts.table == 'snobs':
@@ -453,7 +471,6 @@ def main():
                 )
             data = data[~mask]
 
-
         # Convert band names, if requested.
         if bandnames is None:
             band = data['band']
@@ -482,10 +499,12 @@ def main():
         if opts.table == 'snforce':
             finaldata['image_id'] = data['image_id']
             finaldata['ccdnum'] = data['ccdnum']
+            finaldata['psf_nea'] = data['psf_nea']
+            finaldata['chip_sigsky'] = data['chip_sigsky']
+            finaldata['chip_zero_point'] = data['chip_zero_point']
+            finaldata['chip_zero_point_rms'] = data['chip_zero_point_rms']
             if opts.fake:
                 finaldata['fake_truemag'] = data['fake_truemag']
-                finaldata['chip_zero_point'] = data['chip_zero_point']
-                finaldata['chip_zero_point_rms'] = data['chip_zero_point_rms']
 
         # Create metadata.
         meta = odict()
