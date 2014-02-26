@@ -46,7 +46,7 @@ def dict_to_array(d):
     # figure out the necessary size of the string arrays.
     dtype = []
     for key in d: 
-        d[key] = np.array(d[key])
+        d[key] = np.asarray(d[key])
         dtype.append((key, d[key].dtype))
     
     # Initialize ndarray and then fill it.
@@ -143,11 +143,11 @@ def _write_json(f, data, meta, **kwargs):
     del output
 
 # All writers =============================================================== #
-WRITERS = {'csv': _write_csv,
+WRITERS = {'ascii': _write_csv,
            'salt2': _write_salt2,
            'json': _write_json}
 
-def write_lc(data, fname, meta=None, fmt='csv', **kwargs):
+def write_lc(data, fname, meta=None, fmt='ascii', **kwargs):
     """Write light curve data.
 
     Parameters
@@ -158,14 +158,14 @@ def write_lc(data, fname, meta=None, fmt='csv', **kwargs):
         Filename.
     meta : dict, optional
         A (possibly empty) dictionary of metadata. Default is None.
-    fmt : {'csv', 'salt2', 'json'}, optional
-        Format of file. Default is 'csv'. 'salt2' is the new format available
+    fmt : {'ascii', 'salt2', 'json'}, optional
+        Format of file. Default is 'ascii'. 'salt2' is the new format available
         in snfit version >= 2.3.0.
     delim : str, optional
-        **[csv only]** Character used to separate entries on a line.
+        **[ascii only]** Character used to separate entries on a line.
         Default is ' '.
     metachar : str, optional
-        **[csv only]** Metadata designator. Default is '@'.
+        **[ascii only]** Metadata designator. Default is '@'.
     raw : bool, optional
         **[salt2 only]** By default, the SALT2 writer renames
         some metadata keys and column names in order to comply with what
@@ -191,6 +191,54 @@ def write_lc(data, fname, meta=None, fmt='csv', **kwargs):
     with open(fname, 'wb') as f:
         WRITERS[fmt](f, data, meta, **kwargs)
 
+def write_lcs_fits(meta_list, data_list, fname, header=None):
+    """Write multiple light curves to a two-extension FITS file.
+
+    Parameters
+    ----------
+    meta_list : list of dict
+        All with same keys. Length must match that of ``data_list``.
+    data_list : list of numpy.ndarrays
+        All with same dtype.
+    fname : str
+        Output filename.
+    header : dict
+        Global header (added as FITS keywords in first extension).
+    """
+
+    from fitsio import FITS
+
+    if len(data_list) != len(meta_list):
+        raise ValueError("length of data_list and meta_list must match")
+
+    # collect one giant array that will hold all of the data arrays.
+    nrows = sum([len(d) for d in data_list])
+    dtype = data_list[0].dtype
+    alldata = np.empty(nrows, dtype)
+    
+    # Loop over data_list
+    start = 0
+    ind = 0
+    while data_list:
+        data = data_list.pop(0)  # remove first item
+        end = start + len(data)
+        alldata[start:end] = data
+        meta_list[ind]['datastart'] = start
+        meta_list[ind]['dataend'] = end
+        start = end
+        ind += 1
+
+    meta_names = meta_list[0].keys()
+    meta_arrays = [np.array([meta[n] for meta in meta_list])
+                   for n in meta_names]
+    allmeta = odict(zip(meta_names, meta_arrays))
+    allmeta = dict_to_array(allmeta)
+
+    f = FITS(fname,'rw')
+    f.write(allmeta)
+    f.write(alldata)
+    f[0].write_keys(header)  # write global header
+    f.close()
 
 # Main ====================================================================== #
 def main():
@@ -212,9 +260,9 @@ def main():
                       "with snfake_id > 0) instead of real ones")
     parser.add_option("--infile", default=None,
                       help="Read SNIDs from this file instead of arguments.")
-    parser.add_option("--format", default='csv',
+    parser.add_option("--format", default='ascii',
                       help="file format for output: "
-                      "csv, json, salt2 (default=csv)")
+                      "ascii, json, salt2, fits (default=ascii)")
     parser.add_option("-b", "--bandnames", default='g,r,i,z',
                       help="comma-separated list of names of the DES "
                       "g, r, i, z bands, as they should appear in the "
@@ -228,7 +276,7 @@ def main():
                       help="minimum fake_id (only effective with --fake flag)")
     parser.add_option("--maxfakeid", default=-1, type="int",
                       help="maximum fake_id (only effective with --fake flag)")
-    parser.add_option("-o", "--outputdir", default='.',
+    parser.add_option("-o", "--output", default='.',
                       help="output directory (default='.')")
     parser.add_option("-c", "--clobber", default=False, action='store_true',
                       help="overwrite (refetch) existing files")
@@ -243,20 +291,31 @@ def main():
     else:
         snids = args
     
-    outdir = opts.outputdir
-    if not os.path.exists(outdir):
-        print "DIR must be an existing directory"
-        sys.exit(1)
-    outdir = outdir.rstrip('/')
-
     if opts.table not in ['snforce', 'snobs']:
         print "Table must be one of: snforce, snobs"
         sys.exit(1)
 
-    if opts.format not in ['csv', 'salt2', 'json']:
-        print "Format must be one of: csv, json, salt2."
+    if opts.format == 'csv':  # backwards compatibility
+        opts.format = 'ascii'
+    suffixes = {'fits': 'fits', 'ascii': 'dat', 'salt2': 'dat', 'json': 'json'}
+    if opts.format not in suffixes:
+        print "Format must be one of:", ', '.join(suffixes.keys())
         sys.exit(1)
-    suffix = {'csv': 'dat', 'salt2': 'dat', 'json': 'json'}[opts.format]
+    suffix = suffixes[opts.format]
+
+    # Output depends on format
+    if opts.format == 'fits':
+        import fitsio   # fail immediately if fitsio not installed
+        if not opts.output.endswith(".fits"):
+            raise Exception("For fits format, output must have .fits suffix.")
+        if os.path.exists(opts.output):
+            raise Exception("Target output %s already exists" % opts.output)
+    else:
+        if not os.path.exists(opts.output):
+            print "DIR must be an existing directory"
+            sys.exit(1)
+        opts.output = opts.output.rstrip('/')
+
 
     if opts.bandnames != 'g,r,i,z':
         names = opts.bandnames.split(',')
@@ -271,6 +330,17 @@ def main():
     # Get start time & db username
     t0 = time.time()
     user = PasswordGetter().user
+
+    # FITS format: initialize containers to hold candidate data
+    allmeta = []
+    alldata = []
+    primary_header = None
+    if opts.format == 'fits':
+        primary_header = odict(
+            [('dbuser', user),
+             ('qrytime', datetime.now().strftime('%Y-%m-%dT%H:%M:%S')),
+             ('qryutc', datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S')),
+             ('dbtable', opts.table)])
 
     # Create a connection to the database
     conn = desdb.connect(dbname='desoper')
@@ -346,7 +416,7 @@ def main():
     for i in range(len(cands)):
 
         cand = cands[i]
-        fname = '{0}/des{1:08d}.{2}'.format(outdir, cand['snid'], suffix)
+        fname = '{0}/des{1:08d}.{2}'.format(opts.output, cand['snid'], suffix)
         if not opts.clobber and os.path.exists(fname):
             continue
 
@@ -376,42 +446,33 @@ def main():
             # expnum and ccdnum and these values come from two
             # different tables.
 
+            if opts.fake:
+                addfields = ", fi.truemag as fake_truemag"
+                addjoin = """
+                    LEFT OUTER JOIN snfakeimg fi
+                        ON fi.expnum = ph.expnum
+                        AND fi.snfake_id = {0:d}""".format(cand['fake_id'])
+            else:
+                addfields, addjoin = "", ""
+
             q = """
                 SELECT
                     ph.*,
                     oi.psf_nea,
                     oi.chip_sigsky,
                     oi.chip_zero_point,
-                    oi.chip_zero_point_rms
+                    oi.chip_zero_point_rms{0}
                 FROM
-                    ({0}) ph
-                    left outer join snobsinfo oi
-                        on oi.expnum = ph.expnum
-                        and oi.tile = 0
-                        and oi.ccdnum = ph.ccdnum
-                        and oi.band = ph.band
-                        and oi.run = ph.run
+                    ({1}) ph
+                    LEFT OUTER JOIN snobsinfo oi
+                        ON oi.expnum = ph.expnum
+                        AND oi.tile = 0
+                        AND oi.ccdnum = ph.ccdnum
+                        AND oi.band = ph.band
+                        AND oi.run = ph.run{2}
                 ORDER BY
                     ph.expnum, ph.image_id
-                """.format(q)
-
-
-            if opts.fake:
-                # For fakes, we want to include the true mag of the fake
-                # so we have to additionally left-match to the snfakeimg
-                # table.
-                q = """
-                SELECT
-                    q.*,
-                    fi.truemag as fake_truemag,
-                FROM
-                    ({0}) q
-                    left outer join snfakeimg fi
-                        on fi.expnum = q.expnum
-                        and fi.snfake_id = {1:d}
-                ORDER BY
-                    q.expnum, q.image_id
-                """.format(q, cand['fake_id'])
+                """.format(addfields, q, addjoin)
 
         elif opts.table == 'snobs':
             boxrad = 1.08 / 3600.
@@ -472,18 +533,17 @@ def main():
             data = data[~mask]
 
         # Convert band names, if requested.
-        if bandnames is None:
-            band = data['band']
-        else:
-            band = []
-            for b in data['band']:
-                band.append(bandnames[b])
-
+        band = [b.strip() for b in data['band']]  # strip whitespace
+        if bandnames is not None:
+            band = [bandnames[b] for b in band]
+        band = np.array(band)
+                
         # Add zeropoint information
         if opts.table == 'snforce':
-            zp = 31.4
+            zp = 31.4 * np.ones(len(data))
         elif opts.table == 'snobs':
             zp = data['mag'] + 2.5 * np.log10(data['flux'])
+        zpsys = np.array(len(data) * ['ab']) 
 
         # TODO: make this more automated (so that fields in 'finaldata' don't
         #       have to be explicitly specified).
@@ -493,7 +553,7 @@ def main():
                            ('flux', data['flux']),
                            ('fluxerr', data['flux_err']),
                            ('zp', zp),
-                           ('zpsys', 'ab'),
+                           ('zpsys', zpsys),
                            ('status', data['status']),
                            ('expnum', data['expnum'])])
         if opts.table == 'snforce':
@@ -508,16 +568,20 @@ def main():
 
         # Create metadata.
         meta = odict()
-        meta['query_user'] = user
-        meta['query_time'] = datetime.now().strftime('%Y-%m-%dT%H:%M:%S')
-        meta['query_utc'] = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S')
-        meta['query_table'] = opts.table
+        if opts.format != 'fits':
+            meta['query_user'] = user
+            meta['query_time'] = datetime.now().strftime('%Y-%m-%dT%H:%M:%S')
+            meta['query_utc'] = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S')
+            meta['query_table'] = opts.table
         meta.update(cand)
 
         # Convert entry_date from datetime object to a string.
         meta['entry_date'] = meta['entry_date'].strftime('%Y-%m-%dT%H:%M:%S')
 
         # Get host galaxy info from the SNGALS table.
+        hostinfo = {'host_photoz': None, 'host_photoz_err': None,
+                    'host_specz': None, 'host_specz_err': None,
+                    'host_specz_catalog': None, 'host_separation': None}
         q = """
             SELECT
                 g.photoz as host_photoz, g.photoz_err as host_photoz_err,
@@ -534,27 +598,39 @@ def main():
             print dedent(q)
         gals = conn.quick(q)
         if len(gals) == 1:
-            meta.update(gals[0])
-        elif len(gals) == 0:
-            meta.update({'host_photoz': None, 'host_photoz_err': None,
-                         'host_specz': None, 'host_specz_err': None,
-                         'host_specz_catalog': None,
-                         'host_separation': None})
+            hostinfo.update(gals[0])
         elif len(gals) > 1:
             raise RuntimeError('More than one matching SNGALS entry with '
                                'HOST=1 for SNID=' + str(cand['snid']))
+        meta.update(hostinfo)
 
-        # Turn `None` items into the string 'NULL' for writing to text file.
+        # HACK: `None` in num* columns means `0`.
         for key in meta:
-            if meta[key] is None:
-                if key.startswith('num'):  # hack: None in num columns means 0
-                    meta[key] = 0
-                else:
-                    meta[key] = 'NULL'
+            if key.startswith('num') and meta[key] is None:
+                meta[key] = 0
 
+        # FITS format
+        if opts.format == 'fits':
+            # Convert missing values to something writable.
+            for key in ['host_photoz', 'host_photoz_err',
+                        'host_specz', 'host_specz_err', 'host_separation']:
+                if meta[key] is None: meta[key] = np.nan
+            if meta['host_specz_catalog'] is None:
+                meta['host_specz_catalog'] = ''
 
-        write_lc(finaldata, fname, meta=meta, fmt=opts.format,
-                 pedantic=False)
+            allmeta.append(meta)
+            alldata.append(dict_to_array(finaldata)) 
+        else:
+
+            # Convert missing values to the string 'NULL'.
+            for key in meta:
+                if meta[key] is None: meta[key] = 'NULL'
+            write_lc(finaldata, fname, meta=meta, fmt=opts.format,
+                     pedantic=False)
+
+    # FITS format
+    if opts.format == 'fits':
+        write_lcs_fits(allmeta, alldata, opts.output, header=primary_header)
 
     elapsed = time.time() - t0
     if nempty > 0:
