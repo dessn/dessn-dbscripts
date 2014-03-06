@@ -440,28 +440,19 @@ def main():
                     e.expnum, f.image_id
                 """.format(cand['snid'])
 
-            # Get more information from the snobsinfo table.  This has
-            # to be implemented as a sub-query because we need to
-            # `left outer join` to the snobsinfo table based on *both*
-            # expnum and ccdnum and these values come from two
-            # different tables.
-
-            if opts.fake:
-                addfields = ", fi.truemag as fake_truemag"
-                addjoin = """
-                    LEFT OUTER JOIN snfakeimg fi
-                        ON fi.expnum = ph.expnum
-                        AND fi.snfake_id = {0:d}""".format(cand['fake_id'])
-            else:
-                addfields, addjoin = "", ""
-
-            q = """
+            # Get more information from the snobsinfo and snquality
+            # tables.  This has to be implemented as a sub-query
+            # because we need to `left outer join` to the snobsinfo
+            # table based on *both* expnum and ccdnum and these values
+            # come from two different tables.
+            fullq_template = """
                 SELECT
                     ph.*,
                     oi.psf_nea,
                     oi.chip_sigsky,
                     oi.chip_zero_point,
-                    oi.chip_zero_point_rms{0}
+                    oi.chip_zero_point_rms,
+                    q.snqual{0}
                 FROM
                     ({1}) ph
                     LEFT OUTER JOIN snobsinfo oi
@@ -469,10 +460,24 @@ def main():
                         AND oi.tile = 0
                         AND oi.ccdnum = ph.ccdnum
                         AND oi.band = ph.band
-                        AND oi.run = ph.run{2}
+                        AND oi.run = ph.run
+                    LEFT OUTER JOIN snquality q
+                        ON ph.expnum = q.expnum{2}
                 ORDER BY
                     ph.expnum, ph.image_id
-                """.format(addfields, q, addjoin)
+                """
+
+            # If we're doing fakes, tack on some more info from FAKEIMG
+            addfields = ""
+            addjoin = ""
+            if opts.fake:
+                addfields = ", fi.truemag as fake_truemag"
+                addjoin = """
+                    LEFT OUTER JOIN snfakeimg fi
+                        ON fi.expnum = ph.expnum
+                        AND fi.snfake_id = {0:d}""".format(cand['fake_id'])
+
+            q = fullq_template.format(addfields, q, addjoin)
 
         elif opts.table == 'snobs':
             boxrad = 1.08 / 3600.
