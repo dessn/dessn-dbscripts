@@ -36,162 +36,65 @@ import desdb
 try:
     from desdb.desdb import PasswordGetter  # new location in desdb
 except ImportError:
-    from desdb import PasswordGetter # old location in desdb
+    from desdb import PasswordGetter  # old location in desdb
 
+TABLES = ['snforce', 'snobs']
+FORMATS = ['ascii', 'json', 'fits']
+SUFFIXES = {'ascii': 'dat', 'json': 'json'}  # Single LC formats
+SNOBS_BOXRAD = 1.08 / 3600.
 
-def dict_to_array(d):
+# Utility ================================================================== #
+def dict_to_array(d, keys=None):
     """Convert a dictionary of lists (of equal length) to a numpy array."""
+
+    if keys is None: keys = d.keys()
 
     # first convert all lists to 1-d arrays, in order to let numpy
     # figure out the necessary size of the string arrays.
     dtype = []
-    for key in d: 
+    for key in keys:
         d[key] = np.asarray(d[key])
         dtype.append((key, d[key].dtype))
     
     # Initialize ndarray and then fill it.
-    firstkey = d.keys()[0]
-    result = np.empty(len(d[firstkey]), dtype=dtype)
+    result = np.empty(len(d[keys[0]]), dtype=dtype)
     for key, col in d.iteritems():
         result[key] = col
 
     return result
 
-# Writer: csv =============================================================== #
-def _write_csv(f, data, meta, **kwargs):
-    
+# Writers ================================================================== #
+def write_single_ascii(fname, data, meta, **kwargs):
+    """Write a single light curve to an ASCII file"""
+
     delim = kwargs.get('delim', ' ')
     metachar = kwargs.get('metachar', '@')
-    
-    if meta is not None:
-        for key, val in meta.iteritems():
-            f.write('{}{}{}{}\n'.format(metachar, key, delim, str(val)))
-
     keys = data.dtype.names
     length = len(data)
-    
-    f.write(delim.join(keys))
-    f.write('\n')
-    for i in range(length):
-        f.write(delim.join([str(data[key][i]) for key in keys]))
-        f.write('\n')
-
-# Writer: salt2 ============================================================= #
-KEY_TO_SALT2KEY_META = {
-    'Z': 'REDSHIFT',              # Not sure if this is used.
-    'Z_HELIOCENTRIC': 'Z_HELIO',
-    'MAGSYS': 'MagSys',
-    'Z_SOURCE': 'z_source'}
-KEY_TO_SALT2KEY_COLUMN = {
-    'Mjd': 'Date',
-    'Time': 'Date',
-    'Flux': 'FluxPsf',
-    'Fluxpsf': 'FluxPsf',
-    'Fluxerr': 'FluxPsferr',
-    'Fluxpsferr': 'FluxPsferr',
-    'Airmass': 'AirMass',
-    'Zp': 'ZP',
-    'Zpsys': 'MagSys',
-    'Magsys': 'MagSys',
-    'Band': 'Filter'}
-
-def _write_salt2(f, data, meta, **kwargs):
-
-    raw = kwargs.get('raw', False)
-    pedantic = kwargs.get('pedantic', True)
-    
-    if meta is not None:
-        for key, val in meta.iteritems():
-            if not raw:
-                key = key.upper()
-                key = KEY_TO_SALT2KEY_META.get(key, key)
-            f.write('@{0} {1}\n'.format(key, str(val)))
-
-    keys = data.dtype.names
-    length = len(data)
-
-    # Write column names
-    keys_as_written = []
-    for key in keys:
-        if not raw:
-            key = key.capitalize()
-            key = KEY_TO_SALT2KEY_COLUMN.get(key, key)
-        f.write('#{0} :\n'.format(key))
-        keys_as_written.append(key)
-    f.write('#end :\n')
-
-    # Check that necessary fields exist
-    if pedantic:
-        if not ('Filter' in keys_as_written and 'MagSys' in keys_as_written):
-            raise ValueError('photometry data missing required some fields '
-                             ': Filter, MagSys')
-
-    # Write the data itself
-    for i in range(length):
-        f.write(' '.join([str(data[key][i]) for key in keys]))
-        f.write('\n')
-
-# Writer: json ============================================================== #
-def _write_json(f, data, meta, **kwargs):
-
-    # Build a dictionary of pure-python objects
-    output = odict([('meta', meta),
-                    ('data', odict())])
-    for key in data.dtype.names:
-        output['data'][key] = data[key].tolist()
-    json.dump(output, f, encoding=sys.getdefaultencoding())
-    del output
-
-# All writers =============================================================== #
-WRITERS = {'ascii': _write_csv,
-           'salt2': _write_salt2,
-           'json': _write_json}
-
-def write_lc(data, fname, meta=None, fmt='ascii', **kwargs):
-    """Write light curve data.
-
-    Parameters
-    ----------
-    data : `~numpy.ndarray` or dict
-        Data.
-    fname : str
-        Filename.
-    meta : dict, optional
-        A (possibly empty) dictionary of metadata. Default is None.
-    fmt : {'ascii', 'salt2', 'json'}, optional
-        Format of file. Default is 'ascii'. 'salt2' is the new format available
-        in snfit version >= 2.3.0.
-    delim : str, optional
-        **[ascii only]** Character used to separate entries on a line.
-        Default is ' '.
-    metachar : str, optional
-        **[ascii only]** Metadata designator. Default is '@'.
-    raw : bool, optional
-        **[salt2 only]** By default, the SALT2 writer renames
-        some metadata keys and column names in order to comply with what
-        snfit expects. Set to True to override this.
-        Default is False.
-    pedantic : bool, optional
-        **[salt2 only]** If True, check that output column names and header
-        keys comply with expected formatting, and raise a ValueError if not.
-        It is probably a good idea to set to False when raw is True.
-        Default is True. 
-    """
-
-    if fmt not in WRITERS:
-        raise ValueError("Writer not defined for format '{0}'. Options: "
-                         .format(fmt) + ", ".join(WRITERS.keys()))
-
-    if not isinstance(data, np.ndarray):
-        data = dict_to_array(data)
-
-    if meta is None:
-        meta = {}
 
     with open(fname, 'wb') as f:
-        WRITERS[fmt](f, data, meta, **kwargs)
+        if meta is not None:
+            for key, val in meta.iteritems():
+                f.write('{0}{1}{2}{3}\n'.format(metachar, key, delim, val))
 
-def write_lcs_fits(meta_list, data_list, fname, header=None):
+        f.write(delim.join(keys))
+        f.write('\n')
+        for i in range(length):
+            f.write(delim.join([str(data[key][i]) for key in keys]))
+            f.write('\n')
+
+def write_single_json(fname, data, meta):
+    """Write a single light curve to a JSON-format file"""
+
+    # Build a dictionary of pure-python objects
+    output = odict([('meta', meta), ('data', odict())])
+    for key in data.dtype.names:
+        output['data'][key] = data[key].tolist()
+
+    with open(fname, 'wb') as f:
+        json.dump(output, f, encoding=sys.getdefaultencoding())
+
+def write_multiple_fits(meta_list, data_list, fname, header=None):
     """Write multiple light curves to a two-extension FITS file.
 
     Parameters
@@ -240,8 +143,8 @@ def write_lcs_fits(meta_list, data_list, fname, header=None):
     f[0].write_keys(header)  # write global header
     f.close()
 
-# Main ====================================================================== #
-def main():
+# Argument parser ========================================================== #
+def parse_args():
 
     parser = OptionParser(usage='%prog [options] [SNID ...]',
                           description=__doc__)
@@ -253,16 +156,16 @@ def main():
                       "(default: get only candidates that have "
                       "cand_type=0, indicating current, good)")
     parser.add_option("-t", "--table", default='snforce',
-                      help="table from which to retrieve photometry points: "
-                      "snobs, snforce (default: snforce)")
+                      help=("table from which to retrieve photometry: "+
+                            ",".join(TABLES) + " (default: snforce)"))
     parser.add_option("--fake", default=False, action='store_true',
                       help="get light curves for fake candidates (candidates "
                       "with snfake_id > 0) instead of real ones")
     parser.add_option("--infile", default=None,
                       help="Read SNIDs from this file instead of arguments.")
     parser.add_option("--format", default='ascii',
-                      help="file format for output: "
-                      "ascii, json, salt2, fits (default=ascii)")
+                      help=("file format for output: " + ",".join(FORMATS) +
+                            " (default=ascii)"))
     parser.add_option("-b", "--bandnames", default='g,r,i,z',
                       help="comma-separated list of names of the DES "
                       "g, r, i, z bands, as they should appear in the "
@@ -291,19 +194,17 @@ def main():
     else:
         snids = args
     
-    if opts.table not in ['snforce', 'snobs']:
-        print "Table must be one of: snforce, snobs"
+    if opts.table not in TABLES:
+        print "Table must be one of: " + ",".join(TABLES)
         sys.exit(1)
 
-    if opts.format == 'csv':  # backwards compatibility
-        opts.format = 'ascii'
-    suffixes = {'fits': 'fits', 'ascii': 'dat', 'salt2': 'dat', 'json': 'json'}
-    if opts.format not in suffixes:
-        print "Format must be one of:", ', '.join(suffixes.keys())
+    opts.format = opts.format.lower()
+    if opts.format == 'csv': opts.format = 'ascii'  # backwards compatibility
+    if opts.format not in FORMATS:
+        print "Format must be one of:", ', '.join(FORMATS)
         sys.exit(1)
-    suffix = suffixes[opts.format]
 
-    # Output depends on format
+    # Check output, depending on format
     if opts.format == 'fits':
         import fitsio   # fail immediately if fitsio not installed
         if not opts.output.endswith(".fits"):
@@ -312,38 +213,21 @@ def main():
             raise Exception("Target output %s already exists" % opts.output)
     else:
         if not os.path.exists(opts.output):
-            print "DIR must be an existing directory"
+            print "--output: must specify an existing directory"
             sys.exit(1)
         opts.output = opts.output.rstrip('/')
 
+    # Turn bandnames into a lookup table
+    names = opts.bandnames.split(',')
+    if len(names) != 4:
+        print "bandnames must have 4 comma-separated elements"
+        sys.exit(1)
+    opts.bandnames = {'g': names[0],'r': names[1],'i': names[2],'z': names[3]}
 
-    if opts.bandnames != 'g,r,i,z':
-        names = opts.bandnames.split(',')
-        if len(names) != 4:
-            print "bandnames must have 4 comma-separated elements"
-            sys.exit(1)
-        bandnames = {'g': names[0], 'r': names[1], 'i': names[2],
-                     'z': names[3]}
-    else:
-        bandnames = None
+    return snids, opts
 
-    # Get start time & db username
-    t0 = time.time()
-    user = PasswordGetter().user
-
-    # FITS format: initialize containers to hold candidate data
-    allmeta = []
-    alldata = []
-    primary_header = None
-    if opts.format == 'fits':
-        primary_header = odict(
-            [('dbuser', user),
-             ('qrytime', datetime.now().strftime('%Y-%m-%dT%H:%M:%S')),
-             ('qryutc', datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S')),
-             ('dbtable', opts.table)])
-
-    # Create a connection to the database
-    conn = desdb.connect(dbname='desoper')
+# Query string builders ==================================================== #
+def build_cand_query(snids, opts):
 
     # Query for real candidates:
     if not opts.fake:
@@ -391,7 +275,7 @@ def main():
     if len(snids) == 0 and (not opts.all):
         q += "    AND c.cand_type=0\n"
 
-    # Any specific dates? 
+    # Any specific dates?
     if opts.mindate is not None:
         q += "    AND c.entry_date >= date '{0}'\n".format(opts.mindate)
     if opts.maxdate is not None:
@@ -402,118 +286,174 @@ def main():
         q += "    AND rownum <= {0:d}\n".format(opts.n)
 
     q += "ORDER BY c.snid"
+    return q
+
+
+def build_snforce_query(snid, fake_id):
+
+    q = """
+        SELECT
+            substr(e.object, 22, 2) field, i.ccd as ccdnum, e.band,
+            e.mjd_obs, f.flux, f.flux_err, f.status, e.expnum,
+            f.image_id, i.imagetype, i.run
+        FROM
+            exposure e, snforce f, image i
+        WHERE
+            f.sncand_id = {0:d}
+            AND i.id = f.image_id
+            AND e.id = i.exposureid
+        ORDER BY
+            e.expnum, f.image_id
+        """.format(snid)
+
+    # Get more information from the snobsinfo and snquality
+    # tables.  This has to be implemented as a sub-query
+    # because we need to `left outer join` to the snobsinfo
+    # table based on *both* expnum and ccdnum and these values
+    # come from two different tables.
+    fullq_template = """
+        SELECT
+            ph.*,
+            oi.psf_nea,
+            oi.chip_sigsky,
+            oi.chip_zero_point,
+            oi.chip_zero_point_rms,
+            q.snqual{0}
+        FROM
+            ({1}) ph
+            LEFT OUTER JOIN snobsinfo oi
+                ON oi.expnum = ph.expnum
+                AND oi.tile = 0
+                AND oi.ccdnum = ph.ccdnum
+                AND oi.band = ph.band
+                AND oi.run = ph.run
+            LEFT OUTER JOIN snquality q
+                ON ph.expnum = q.expnum{2}
+        ORDER BY
+            ph.expnum, ph.image_id
+        """
+
+    # If we're doing fakes, tack on some more info from FAKEIMG
+    addfields = ""
+    addjoin = ""
+    if fake_id != 0:
+        addfields = ", fi.truemag as fake_truemag"
+        addjoin = """
+            LEFT OUTER JOIN snfakeimg fi
+                ON fi.expnum = ph.expnum
+                AND fi.snfake_id = {0:d}""".format(fake_id)
+
+    return fullq_template.format(addfields, q, addjoin)
+
+
+def build_snobs_query(ra, dec):
+
+    dra = SNOBS_BOXRAD * math.cos(dec * math.pi/180.)
+    ddec = SNOBS_BOXRAD
+    q = """
+    SELECT
+        substr(e.object, 22, 2) field, e.band, e.mjd_obs,
+        o.flux, o.flux_err, o.mag, o.status, e.expnum
+    FROM
+        exposure e, snobs o
+    WHERE
+        o.ra between {0:f} and {1:f}
+        AND o.dec between {2:f} and {3:f}
+        AND o.exposureid=e.expnum
+    ORDER BY
+        e.expnum
+    """.format(ra - dra, ra + dra, dec - ddec, dec + ddec)
+    return q
+
+
+def build_sngals_query(snid):
+    q = """
+    SELECT
+        g.photoz as host_photoz, g.photoz_err as host_photoz_err,
+        g.specz as host_specz, g.specz_err as host_specz_err,
+        g.specz_catalog as host_specz_catalog,
+        g.separation as host_separation
+    FROM
+        sngals g
+    WHERE
+        g.snid = {0:d}
+        AND g.host = 1
+    """.format(snid)
+    return q
+
+# Main ===================================================================== #
+if __name__ == "__main__":
+
+    # Parse command-line args
+    snids, opts = parse_args()
+
+    # Get start time & database username.
+    t0 = time.time()
+    user = PasswordGetter().user
+
+    # Create a connection to the database.
+    conn = desdb.connect(dbname='desoper')
+
+    # Build and run candidate query
+    q = build_cand_query(snids, opts)
     if opts.verbose:
-        print 79 * '='
-        print "candidate query:"
-        print 79 * '='
-        print q
-        print ""
+        print (78 * '=', '\n',
+               "candidate query:\n"
+               78 * '=', '\n',
+               q, '\n')
     cands = conn.quick(q)
-    ncands = len(cands)
 
+    # specify order of keys in photometry tables
+    photkeys = ['time', 'field', 'band', 'flux', 'fluxerr', 'zp', 'zpsys',
+                'status', 'expnum']
+    if opts.table == 'snforce':
+        photkeys.extend(['image_id', 'ccdnum', 'psf_nea', 'chip_sigsky',
+                         'chip_zero_point', 'chip_zero_point_rms'])
+        if opts.fake:
+            photkeys.append('fake_truemag')
+
+    # FITS format: initialize containers to hold candidate data as we go.
+    if opts.format == 'fits':
+        meta_list = []
+        data_list = []
+        primaryheader = odict(
+            [('dbuser', user),
+             ('qrytime', datetime.now().strftime('%Y-%m-%dT%H:%M:%S')),
+             ('qryutc', datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S')),
+             ('dbtable', opts.table)])
+
+    # Loop over candidates
     print '',
+    ncands = len(cands)
     nempty = 0
-    for i in range(len(cands)):
+    for i, cand in enumerate(cands):
 
-        cand = cands[i]
-        fname = '{0}/des{1:08d}.{2}'.format(opts.output, cand['snid'], suffix)
-        if not opts.clobber and os.path.exists(fname):
-            continue
+        # For single light curve formats, check if file already exists.
+        if opts.format in SUFFIXES:
+            fname = '{0}/des{1:08d}.{2}'.format(opts.output, cand['snid'],
+                                                SUFFIXES[opts.format])
+            if not opts.clobber and os.path.exists(fname):
+                continue
 
-        print '\rsnid ={0:8d} ({1:6d}/{2:6d})'.format(cand['snid'], i+1,
-                                                      ncands),
+        # Info line.
+        print '\rsnid ={0:8d} ({1:6d}/{2:6d})'.format(cand['snid'],i+1,ncands),
         sys.stdout.flush()
 
+        # Build the query string and run it
         if opts.table == 'snforce':
-            q = """
-                SELECT
-                    substr(e.object, 22, 2) field, i.ccd as ccdnum, e.band,
-                    e.mjd_obs, f.flux, f.flux_err, f.status, e.expnum,
-                    f.image_id, i.imagetype, i.run
-                FROM
-                    exposure e, snforce f, image i
-                WHERE
-                    f.sncand_id = {0:d}
-                    AND i.id = f.image_id
-                    AND e.id = i.exposureid
-                ORDER BY
-                    e.expnum, f.image_id
-                """.format(cand['snid'])
-
-            # Get more information from the snobsinfo and snquality
-            # tables.  This has to be implemented as a sub-query
-            # because we need to `left outer join` to the snobsinfo
-            # table based on *both* expnum and ccdnum and these values
-            # come from two different tables.
-            fullq_template = """
-                SELECT
-                    ph.*,
-                    oi.psf_nea,
-                    oi.chip_sigsky,
-                    oi.chip_zero_point,
-                    oi.chip_zero_point_rms,
-                    q.snqual{0}
-                FROM
-                    ({1}) ph
-                    LEFT OUTER JOIN snobsinfo oi
-                        ON oi.expnum = ph.expnum
-                        AND oi.tile = 0
-                        AND oi.ccdnum = ph.ccdnum
-                        AND oi.band = ph.band
-                        AND oi.run = ph.run
-                    LEFT OUTER JOIN snquality q
-                        ON ph.expnum = q.expnum{2}
-                ORDER BY
-                    ph.expnum, ph.image_id
-                """
-
-            # If we're doing fakes, tack on some more info from FAKEIMG
-            addfields = ""
-            addjoin = ""
-            if opts.fake:
-                addfields = ", fi.truemag as fake_truemag"
-                addjoin = """
-                    LEFT OUTER JOIN snfakeimg fi
-                        ON fi.expnum = ph.expnum
-                        AND fi.snfake_id = {0:d}""".format(cand['fake_id'])
-
-            q = fullq_template.format(addfields, q, addjoin)
-
+            q = build_snforce_query(cand['snid'], cand['fake_id'])
         elif opts.table == 'snobs':
-            boxrad = 1.08 / 3600.
-            ra = cand['ra']
-            dec = cand['dec']
-            dra = boxrad * math.cos(dec * math.pi/180.)
-            ddec = boxrad
-            q = """
-            SELECT
-                substr(e.object, 22, 2) field, e.band, e.mjd_obs,
-                o.flux, o.flux_err, o.mag, o.status, e.expnum
-            FROM
-                exposure e, snobs o
-            WHERE
-                o.ra between {0:f} and {1:f}
-                AND o.dec between {2:f} and {3:f}
-                AND o.exposureid=e.expnum
-            ORDER BY
-                e.expnum
-            """.format(ra - dra, ra + dra, dec - ddec, dec + ddec)
- 
+            q = build_snobs_query(cand['ra'], cand['dec'])
         if opts.verbose:
-            print ''
-            print 79 * '-'
-            print dedent(q)
-
+            print '\n', 78 * '-', '\n', dedent(q)
         data = conn.quick(q, array=True)
-        #print ''
-        #for row in data: print row
-        #exit()
-        #print data
 
+        # Check if data is empty
         if len(data) == 0:
             nempty += 1
             continue
 
+        # HACKS ----------------------------------------------------------
         # Get just the latest image ID for each exposure (expnum)
         # This counts on the data being ordered by (expnum, image_id).
         if opts.table == 'snforce':
@@ -524,52 +464,43 @@ def main():
             indicies_to_use.append(len(data)-1)
             data = data[indicies_to_use]
 
-            # Temporary hack: Sometimes forced photometry was mistakenly
-            # run on diff_single_diff imagetypes when a diff_nitecmb_diff
-            # image was available. This was fixed in Fall 2013 (at some point)
-            # TODO: remove this hack once snforce table is cleaned in off-
-            # season.
-            # Mask rows where imagetype = 'diff_single_diff' that are from
-            # deep fields or z band.
+            # Sometimes forced photometry was mistakenly run on
+            # diff_single_diff imagetypes when a diff_nitecmb_diff
+            # image was available. This was fixed in Fall 2013 (at
+            # some point)
+            #
+            # TODO: remove this hack once snforce table is
+            #       cleaned in off- season.  Mask rows where imagetype =
+            #       'diff_single_diff' that are from deep fields or z band.
             mask = (
                 (data['imagetype'] == 'diff_single_diff') &
                 (np.char.endswith(data['field'], '3') | (data['band'] == 'z'))
                 )
             data = data[~mask]
+        # END HACKS -----------------------------------------------------
 
-        # Convert band names, if requested.
-        band = [b.strip() for b in data['band']]  # strip whitespace
-        if bandnames is not None:
-            band = [bandnames[b] for b in band]
-        band = np.array(band)
-                
+        # Convert `data` to a dictionary of arrays so we can manipulate
+        # some of the columns.
+        data = {key: data[key] for key in data.dtype.names}
+
+        # Convert band names
+        data['band'] = np.array([opts.bandnames[b.strip()]
+                                 for b in data['band']])
+
         # Add zeropoint information
         if opts.table == 'snforce':
-            zp = 31.4 * np.ones(len(data))
+            data['zp'] = 31.4 * np.ones(len(data))
         elif opts.table == 'snobs':
-            zp = data['mag'] + 2.5 * np.log10(data['flux'])
-        zpsys = np.array(len(data) * ['ab']) 
+            data['zp'] = data['mag'] + 2.5 * np.log10(data['flux'])
+            del data['mag']
+        data['zpsys'] = np.array(len(data) * ['ab']) 
 
-        # TODO: make this more automated (so that fields in 'finaldata' don't
-        #       have to be explicitly specified).
-        finaldata = odict([('time', data['mjd_obs']),
-                           ('field', data['field']),
-                           ('band', band),
-                           ('flux', data['flux']),
-                           ('fluxerr', data['flux_err']),
-                           ('zp', zp),
-                           ('zpsys', zpsys),
-                           ('status', data['status']),
-                           ('expnum', data['expnum'])])
-        if opts.table == 'snforce':
-            finaldata['image_id'] = data['image_id']
-            finaldata['ccdnum'] = data['ccdnum']
-            finaldata['psf_nea'] = data['psf_nea']
-            finaldata['chip_sigsky'] = data['chip_sigsky']
-            finaldata['chip_zero_point'] = data['chip_zero_point']
-            finaldata['chip_zero_point_rms'] = data['chip_zero_point_rms']
-            if opts.fake:
-                finaldata['fake_truemag'] = data['fake_truemag']
+        # Rename some columns
+        data['time'] = data.pop('mjd_obs')
+        data['fluxerr'] = data.pop('flux_err')
+
+        # Convert to a structured numpy array
+        data = dict_to_array(data, keys=photkeys)
 
         # Create metadata.
         meta = odict()
@@ -583,65 +514,52 @@ def main():
         # Convert entry_date from datetime object to a string.
         meta['entry_date'] = meta['entry_date'].strftime('%Y-%m-%dT%H:%M:%S')
 
-        # Get host galaxy info from the SNGALS table.
-        hostinfo = {'host_photoz': None, 'host_photoz_err': None,
+        # Initialize host info in metadata.
+        meta.update({'host_photoz': None, 'host_photoz_err': None,
                     'host_specz': None, 'host_specz_err': None,
-                    'host_specz_catalog': None, 'host_separation': None}
-        q = """
-            SELECT
-                g.photoz as host_photoz, g.photoz_err as host_photoz_err,
-                g.specz as host_specz, g.specz_err as host_specz_err,
-                g.specz_catalog as host_specz_catalog,
-                g.separation as host_separation
-            FROM
-                sngals g
-            WHERE
-                g.snid = {0:d}
-                AND g.host = 1
-            """.format(cand['snid'])
+                    'host_specz_catalog': None, 'host_separation': None})
+
+        # Get host galaxy info from the SNGALS table.
+        q = build_sngals_query(cand['snid'])
         if opts.verbose:
             print dedent(q)
         gals = conn.quick(q)
         if len(gals) == 1:
-            hostinfo.update(gals[0])
+            meta.update(gals[0])
         elif len(gals) > 1:
             raise RuntimeError('More than one matching SNGALS entry with '
                                'HOST=1 for SNID=' + str(cand['snid']))
-        meta.update(hostinfo)
 
-        # HACK: `None` in num* columns means `0`.
+        # HACK ----------------------------------------------------------
+        # `None` in num* columns means `0`.
         for key in meta:
             if key.startswith('num') and meta[key] is None:
                 meta[key] = 0
+        # ---------------------------------------------------------------
 
-        # FITS format
-        if opts.format == 'fits':
+        if opts.format == 'ascii':
+            for key in meta:  # Convert missing values to 'NULL'
+                if meta[key] is None: meta[key] = 'NULL'
+            write_single_ascii(fname, data, meta)
+
+        elif opts.format == 'json':
+            write_single_json(fname, data, meta)
+
+        elif opts.format == 'fits':
             # Convert missing values to something writable.
-            for key in ['host_photoz', 'host_photoz_err',
-                        'host_specz', 'host_specz_err', 'host_separation']:
+            for key in ['host_photoz', 'host_photoz_err', 'host_specz',
+                        'host_specz_err', 'host_separation']:
                 if meta[key] is None: meta[key] = np.nan
             if meta['host_specz_catalog'] is None:
                 meta['host_specz_catalog'] = ''
+            meta_list.append(meta)
+            data_list.append(data) 
 
-            allmeta.append(meta)
-            alldata.append(dict_to_array(finaldata)) 
-        else:
-
-            # Convert missing values to the string 'NULL'.
-            for key in meta:
-                if meta[key] is None: meta[key] = 'NULL'
-            write_lc(finaldata, fname, meta=meta, fmt=opts.format,
-                     pedantic=False)
-
-    # FITS format
+    # for FITS format, write it all out.
     if opts.format == 'fits':
-        write_lcs_fits(allmeta, alldata, opts.output, header=primary_header)
+        write_multiple_fits(meta_list, data_list, opts.output,
+                            header=primaryheader)
 
     elapsed = time.time() - t0
-    if nempty > 0:
-        print "\n{0:d} snids missing photometry were skipped".format(nempty),
-    print "\nTotal time: {0:d}m{1:05.2f}s".format(int(elapsed) / 60,
-                                                  elapsed % 60)
-
-if __name__ == '__main__':
-    main()
+    print "\n{0:d} snids missing photometry were skipped".format(nempty)
+    print "\nTotal time: {0:d}m{1:05.2f}s".format(int(elapsed)/60, elapsed%60)
