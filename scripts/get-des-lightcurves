@@ -313,8 +313,8 @@ def build_snforce_query(snid, fake_id):
             oi.psf_nea,
             oi.chip_sigsky,
             oi.chip_zero_point,
-            oi.chip_zero_point_rms /* ,
-            q.snqual */ {0}
+            oi.chip_zero_point_rms,
+            nvl(q.snqual, 0) as snqual{0}
         FROM
             ({1}) ph
             LEFT OUTER JOIN snobsinfo oi
@@ -323,8 +323,8 @@ def build_snforce_query(snid, fake_id):
                 AND oi.ccdnum = ph.ccdnum
                 AND oi.band = ph.band
                 AND oi.run = ph.run
-        /*  LEFT OUTER JOIN snquality q
-                ON ph.expnum = q.expnum*/{2}
+            LEFT OUTER JOIN snquality q
+                ON ph.expnum = q.expnum{2}
         ORDER BY
             ph.expnum, ph.image_id
         """
@@ -401,7 +401,7 @@ if __name__ == "__main__":
                 'status', 'expnum']
     if opts.table == 'snforce':
         photkeys.extend(['image_id', 'ccdnum', 'psf_nea', 'chip_sigsky',
-                         'chip_zero_point', 'chip_zero_point_rms'])
+                         'chip_zero_point', 'chip_zero_point_rms', 'snqual'])
         if opts.fake:
             photkeys.append('fake_truemag')
 

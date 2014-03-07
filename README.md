@@ -49,8 +49,7 @@ exerpt:
 @host_photoz_err 0.0531300008297
 @host_specz_catalog NULL
 @host_specz_err NULL
-time field band flux fluxerr zp zpsys status expnum image_id ccdnum psf_nea chip_sigsky chip_zero_point chip_zero_point_r
-ms
+time field band flux fluxerr zp zpsys status expnum image_id ccdnum psf_nea chip_sigsky chip_zero_point chip_zero_point_rms
 56536.2177155 C2 g -10528.2 734.473 31.4 ab 1 229378 470978951 21 1.515 7.53202 29.996 0.083
 56536.2285244 C2 r -9241.23 14385.2 31.4 ab 17 229379 470887770 21 1.674 12.2332 30.287 0.054
 56536.2306145 C2 i -4916.34 2744.28 31.4 ab 17 229380 470962346 21 1.639 22.4209 30.856 0.092
@@ -82,8 +81,8 @@ first extension, there is one row per candidate, and in the second
 extension there are multiple rows per candidate. The first extension
 contains two extra columns `datastart` and `dataend` giving the
 location of the candidate's photometry in the second extension. Here
-is an example of how to loop over the first 10 candidates in the file using the `fitsio` python
-package:
+is an example of how to loop over the first 10 candidates in the file
+using the `fitsio` python package:
 
 ```python
 f = fitsio.FITS("candidates.fits")  # open file for reading
@@ -110,3 +109,11 @@ get-des-obsinfo -n 1000 -o output.txt  # Generate 1000 random positions
 get-des-obsinfo --infile positions.txt -o output.txt  # Read positions from file
 get-des-obsinfo -c -o output.txt       # Cache DB query results in local file
 ```
+
+
+## get-cand-imageinfo
+
+Given a candidate's SNID, retrieve information about which images in the
+database overlap its position.  The information is sufficient to
+determine the path of the images so that they can be downloaded from
+NCSA.
