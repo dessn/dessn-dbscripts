@@ -1,11 +1,29 @@
 #!/usr/bin/env python
 
+import os
 from subprocess import check_call
 
-ex = "../scripts/get-des-lightcurves"
+prog = "../scripts/get-des-lightcurves"
 
-# Test a single SNID, ascii format
-snid = '1137924'
-args = [ex, snid]
-print ' '.join(args)
-check_call(args)
+def run(args):
+    print ' '.join(args)
+    check_call(args)
+
+# Single SNID, ascii format
+snid = 1137924
+run([prog, str(snid)])
+os.remove('des%08d.dat' % snid)
+
+# JSON format
+run([prog, '--format', 'json', str(snid)])
+os.remove('des%08d.json' % snid)
+
+
+# --fake flag
+snid = 620903
+run([prog, '--fake', str(snid)])
+os.remove('des%08d.dat' % snid)
+
+# FITS format
+run([prog, '-n', '5', '--format', 'fits', '-o', 'test.fits'])
+os.remove('test.fits')
