@@ -45,21 +45,16 @@ SNOBS_BOXRAD = 1.08 / 3600.
 
 # Utility ================================================================== #
 def dict_to_array(d, keys=None):
-    """Convert a dictionary of lists (of equal length) to a numpy array."""
+    """Convert a dict of arrays (of equal length) to a structured array."""
 
-    if keys is None: keys = d.keys()
+    if keys is None:
+        keys = d.keys()
 
-    # first convert all lists to 1-d arrays, in order to let numpy
-    # figure out the necessary size of the string arrays.
-    dtype = []
+    size = len(d[keys[0]])
+    dtype = [(key, d[key].dtype) for key in keys]
+    result = np.empty(size, dtype=dtype)
     for key in keys:
-        d[key] = np.asarray(d[key])
-        dtype.append((key, d[key].dtype))
-    
-    # Initialize ndarray and then fill it.
-    result = np.empty(len(d[keys[0]]), dtype=dtype)
-    for key, col in d.iteritems():
-        result[key] = col
+        result[key] = d[key]
 
     return result
 
@@ -317,8 +312,8 @@ def build_snforce_query(snid, fake_id):
             oi.psf_nea,
             oi.chip_sigsky,
             oi.chip_zero_point,
-            oi.chip_zero_point_rms,
-            q.snqual{0}
+            oi.chip_zero_point_rms /* ,
+            q.snqual */ {0}
         FROM
             ({1}) ph
             LEFT OUTER JOIN snobsinfo oi
@@ -327,8 +322,8 @@ def build_snforce_query(snid, fake_id):
                 AND oi.ccdnum = ph.ccdnum
                 AND oi.band = ph.band
                 AND oi.run = ph.run
-            LEFT OUTER JOIN snquality q
-                ON ph.expnum = q.expnum{2}
+        /*  LEFT OUTER JOIN snquality q
+                ON ph.expnum = q.expnum*/{2}
         ORDER BY
             ph.expnum, ph.image_id
         """
@@ -397,10 +392,7 @@ if __name__ == "__main__":
     # Build and run candidate query
     q = build_cand_query(snids, opts)
     if opts.verbose:
-        print (78 * '=', '\n',
-               "candidate query:\n"
-               78 * '=', '\n',
-               q, '\n')
+        print 78 * '=', '\n', "candidate query:\n", 78 * '=', '\n', q, '\n'
     cands = conn.quick(q)
 
     # specify order of keys in photometry tables
@@ -481,6 +473,7 @@ if __name__ == "__main__":
 
         # Convert `data` to a dictionary of arrays so we can manipulate
         # some of the columns.
+        nrows = len(data)
         data = {key: data[key] for key in data.dtype.names}
 
         # Convert band names
@@ -489,11 +482,11 @@ if __name__ == "__main__":
 
         # Add zeropoint information
         if opts.table == 'snforce':
-            data['zp'] = 31.4 * np.ones(len(data))
+            data['zp'] = 31.4 * np.ones(nrows)
         elif opts.table == 'snobs':
             data['zp'] = data['mag'] + 2.5 * np.log10(data['flux'])
             del data['mag']
-        data['zpsys'] = np.array(len(data) * ['ab']) 
+        data['zpsys'] = np.array(nrows * ['ab']) 
 
         # Rename some columns
         data['time'] = data.pop('mjd_obs')

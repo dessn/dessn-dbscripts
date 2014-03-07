@@ -1,0 +1,11 @@
+#!/usr/bin/env python
+
+from subprocess import check_call
+
+ex = "../scripts/get-des-lightcurves"
+
+# Test a single SNID, ascii format
+snid = '1137924'
+args = [ex, snid]
+print ' '.join(args)
+check_call(args)
