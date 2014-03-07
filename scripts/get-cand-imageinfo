@@ -1,0 +1,122 @@
+#!/usr/bin/env python
+"""Fetch image metadata from NCSA database for images containing the given
+supernova candidate.
+"""
+
+import os
+import sys
+from sys import stderr, stdout
+import math
+import time
+import numpy as np
+import desdb
+
+
+if __name__ == '__main__':
+
+    # Parse arguments
+    args = sys.argv[1:]
+    if len(args) != 1:
+        stderr.write("exactly 1 argument")
+        sys.exit(1)
+    snid = args[0]
+
+    conn=desdb.Connection()
+
+    query = """
+    select
+        ra,
+        dec
+    from
+        sncand
+    where
+        snid = {:d}
+    """.format(args.snid)
+    data = conn.quick(query)
+
+    ra, dec = data[0]['ra'], data[0]['dec']
+    print "ra={:9.6f} dec={:9.6f}".format(ra, dec)
+
+    query = """
+    select
+        i.id,
+        i.imagename,
+        i.exposureid,
+        e.exposurename,
+        e.expnum,
+        i.ccd,
+        i.run,
+        i.band,
+        i.naxis1,
+        i.crval1,
+        i.crpix1,
+        i.cd1_1,
+        i.cd1_2,
+        i.naxis2,
+        i.crval2,
+        i.crpix2,
+        i.cd2_1,
+        i.cd2_2
+    from
+        image i,
+        exposure e
+    where
+        i.ra between {:f} and {:f} and
+        i.dec between {:f} and {:f} and
+        i.imagetype='red' and
+        i.exposureid = e.id and
+        e.object like 'DES supernova hex %' and
+        i.ccd != 61 and
+        (i.cd2_2 * ({:f}-i.crval1) - i.cd1_2 * ({:f}-i.crval2))/
+            (i.cd1_1*i.cd2_2 - i.cd1_2*i.cd2_1) + i.crpix1
+            between 1 and i.naxis1 and
+        (-i.cd2_1 * ({:f}-i.crval1) + i.cd1_1 * ({:f}-i.crval2))/
+            (i.cd1_1*i.cd2_2 - i.cd1_2*i.cd2_1) + i.crpix2
+            between 1 and i.naxis2
+    order by
+        i.exposureid,
+        i.ccd,
+        i.run
+    """
+
+    boxrad = (2048. * 0.27) / 3600.  # half of ccd length in degrees
+    dra = boxrad + math.cos(dec * math.pi/180.)
+    ddec = boxrad
+    query = query.format(ra - dra, ra + dra,
+                         dec - ddec, dec + ddec,
+                         ra, dec,
+                         ra, dec)
+
+    print "Querying database for images..."
+    t0 = time.time()
+    data = conn.quick(query, array=True)
+    dt = time.time() - t0
+    print "took {:5.1f} seconds.".format(dt)
+    print ("Found {:d} total images from {:d} unique "
+           "exposures on {:d} unique ccds."
+           .format(len(data), len(np.unique(data['exposureid'])),
+                   len(np.unique(data['ccd']))))
+
+    # Get just the latest processing run for each exposure/ccd.
+    # This counts on the data being ordered by exposureid, ccd, run.
+    indicies_to_use = []
+    for i in range(1, len(data)):
+        if not (data['exposureid'][i] == data['exposureid'][i-1] and
+                data['ccd'][i] == data['ccd'][i-1]):
+            indicies_to_use.append(i-1)
+    indicies_to_use.append(len(data)-1)
+    data = data[indicies_to_use]
+
+    # Save to file
+    fname = os.path.join(image_metadata_dir,
+                         '{:d}_images.csv'.format(args.snid))
+    #with open(fname, 'w') as outfile:
+    stdout.write('expnum,ccd,latestrun\n')
+    for i in range(len(data)):
+        stdout.write('{:d},{:d},{:s}\n'.format(data['expnum'][i],
+                                               data['ccd'][i],
+                                               data['run'][i]))
+    print "Wrote image info:", fname
+
+if __name__ == '__main__':
+    main()

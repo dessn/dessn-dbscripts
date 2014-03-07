@@ -98,8 +98,15 @@ for meta in f[1][0:10]:
     # ... do stuff with data, which is a numpy structured array
 ```
 
-get-des-obsinfo
----------------
+
+## get-des-obsinfo
 
 Retrieve observing conditions (image metadata) for a random set of
 positions from the database, write to an SNANA "SIMLIB" format file.
+
+```
+get-des-obsinfo -o output.txt          # Generate 100 random positions (default)
+get-des-obsinfo -n 1000 -o output.txt  # Generate 1000 random positions
+get-des-obsinfo --infile positions.txt -o output.txt  # Read positions from file
+get-des-obsinfo -c -o output.txt       # Cache DB query results in local file
+```
