@@ -18,6 +18,9 @@ os.remove('des%08d.dat' % snid)
 run([prog, '--format', 'json', str(snid)])
 os.remove('des%08d.json' % snid)
 
+# --galflux flag
+run([prog, '--galflux', str(snid)])
+os.remove('des%08d.dat' % snid)
 
 # --fake flag
 snid = 620903
@@ -27,3 +30,4 @@ os.remove('des%08d.dat' % snid)
 # FITS format
 run([prog, '-n', '5', '--format', 'fits', '-o', 'test.fits'])
 os.remove('test.fits')
+

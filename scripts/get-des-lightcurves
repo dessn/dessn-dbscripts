@@ -384,12 +384,14 @@ def build_galflux_query(ra, dec):
     ddec = SNOBS_BOXRAD
     q = """
     SELECT
-        avg(galflux) as galflux
+        band, avg(galflux) as galflux
     FROM
         snobs
     WHERE
         ra between {0:f} and {1:f}
         AND dec between {2:f} and {3:f}
+    GROUP BY
+        band
     """.format(ra - dra, ra + dra, dec - ddec, dec + ddec)
     return q
 
@@ -562,7 +564,8 @@ if __name__ == "__main__":
             if opts.verbose:
                 print dedent(q)
             res = conn.quick(q)
-            meta.update(res[0])
+            res = {'galflux_' + r['band']: r['galflux'] for r in res}
+            meta.update(res)
 
         # HACK ----------------------------------------------------------
         # `None` in num* columns means `0`.
