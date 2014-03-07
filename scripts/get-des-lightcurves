@@ -42,7 +42,7 @@ except ImportError:
 TABLES = ['snforce', 'snobs']
 FORMATS = ['ascii', 'json', 'fits']
 SUFFIXES = {'ascii': 'dat', 'json': 'json'}  # Single LC formats
-SNOBS_BOXRAD = 1.08 / 3600.
+SNOBS_BOXRAD = 1.08 / 3600.  # in degrees
 
 # Utility ================================================================== #
 def dict_to_array(d, keys=None):
@@ -144,6 +144,8 @@ def parse_args():
 
     parser = OptionParser(usage='%prog [options] [SNID ...]',
                           description=__doc__)
+
+    # Which candidates?
     parser.add_option("-n", type="int", default=-1,
                       help="maximum number of light curves to get (default "
                       "behaviour is to get all 'good' light curves)")
@@ -151,14 +153,31 @@ def parse_args():
                       help="get all candidates, regardless of cand_type "
                       "(default: get only candidates that have "
                       "cand_type=0, indicating current, good)")
-    parser.add_option("-t", "--table", default='snforce',
-                      help=("table from which to retrieve photometry: "+
-                            ",".join(TABLES) + " (default: snforce)"))
+    parser.add_option("--infile", default=None,
+                      help="Read SNIDs from this file instead of arguments.")
+    parser.add_option("--mindate", default=None,
+                      help="minimum candidate entry_date, format: YYYY-MM-DD")
+    parser.add_option("--maxdate", default=None,
+                      help="maximum candidate entry_date, format: YYYY-MM-DD")
+
+    # Which fake candidates?
     parser.add_option("--fake", default=False, action='store_true',
                       help="get light curves for fake candidates (candidates "
                       "with snfake_id > 0) instead of real ones")
-    parser.add_option("--infile", default=None,
-                      help="Read SNIDs from this file instead of arguments.")
+    parser.add_option("--minfakeid", default=-1, type="int",
+                      help="minimum fake_id (only effective with --fake flag)")
+    parser.add_option("--maxfakeid", default=-1, type="int",
+                      help="maximum fake_id (only effective with --fake flag)")
+
+    # Content: which table? optional metadata?
+    parser.add_option("-t", "--table", default='snforce',
+                      help=("table from which to retrieve photometry: "+
+                            ",".join(TABLES) + " (default: snforce)"))
+    parser.add_option("--galflux", default=False, action='store_true',
+                      help="Include galflux in metadata (average of "
+                      "SNOBS.GALFLUX column for nearby entries)")
+
+    # Output formatting?
     parser.add_option("--format", default='ascii',
                       help=("file format for output: " + ",".join(FORMATS) +
                             " (default=ascii)"))
@@ -167,18 +186,14 @@ def parse_args():
                       "g, r, i, z bands, as they should appear in the "
                       "output files. example: 'desg,desr,desi,desz' default: "
                       "'g,r,i,z'")
-    parser.add_option("--mindate", default=None,
-                      help="minimum candidate entry_date, format: YYYY-MM-DD")
-    parser.add_option("--maxdate", default=None,
-                      help="maximum candidate entry_date, format: YYYY-MM-DD")
-    parser.add_option("--minfakeid", default=-1, type="int",
-                      help="minimum fake_id (only effective with --fake flag)")
-    parser.add_option("--maxfakeid", default=-1, type="int",
-                      help="maximum fake_id (only effective with --fake flag)")
+
+    # Output location?
     parser.add_option("-o", "--output", default='.',
                       help="output directory (default='.')")
     parser.add_option("-c", "--clobber", default=False, action='store_true',
                       help="overwrite (refetch) existing files")
+
+    # Verbosity?
     parser.add_option("-v", "--verbose", default=False, action='store_true',
                       help="print query string for all queries")
 
@@ -361,6 +376,23 @@ def build_snobs_query(ra, dec):
     """.format(ra - dra, ra + dra, dec - ddec, dec + ddec)
     return q
 
+def build_galflux_query(ra, dec):
+    """Similar to above query, but just get average galflux for all
+    entries within the SNOBS_BOXRAD"""
+
+    dra = SNOBS_BOXRAD * math.cos(dec * math.pi/180.)
+    ddec = SNOBS_BOXRAD
+    q = """
+    SELECT
+        avg(galflux) as galflux
+    FROM
+        snobs
+    WHERE
+        ra between {0:f} and {1:f}
+        AND dec between {2:f} and {3:f}
+    """.format(ra - dra, ra + dra, dec - ddec, dec + ddec)
+    return q
+
 
 def build_sngals_query(snid):
     q = """
@@ -524,6 +556,14 @@ if __name__ == "__main__":
             raise RuntimeError('More than one matching SNGALS entry with '
                                'HOST=1 for SNID=' + str(cand['snid']))
 
+        # If requested, get average galflux from SNOBS table.
+        if opts.galflux:
+            q = build_galflux_query(cand['ra'], cand['dec'])
+            if opts.verbose:
+                print dedent(q)
+            res = conn.quick(q)
+            meta.update(res[0])
+
         # HACK ----------------------------------------------------------
         # `None` in num* columns means `0`.
         for key in meta:
@@ -556,4 +596,4 @@ if __name__ == "__main__":
 
     elapsed = time.time() - t0
     print "\n{0:d} snids missing photometry were skipped".format(nempty)
-    print "\nTotal time: {0:d}m{1:05.2f}s".format(int(elapsed)/60, elapsed%60)
+    print "Total time: {0:d}m{1:05.2f}s".format(int(elapsed)/60, elapsed%60)
