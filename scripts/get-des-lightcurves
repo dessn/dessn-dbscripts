@@ -390,6 +390,7 @@ def build_galflux_query(ra, dec):
     WHERE
         ra between {0:f} and {1:f}
         AND dec between {2:f} and {3:f}
+        AND band in ('g','r','i','z')  /* eliminate entries with band = 'N' */
     GROUP BY
         band
     """.format(ra - dra, ra + dra, dec - ddec, dec + ddec)
@@ -560,12 +561,14 @@ if __name__ == "__main__":
 
         # If requested, get average galflux from SNOBS table.
         if opts.galflux:
+            meta.update({'galflux_g': None, 'galflux_r': None,
+                         'galflux_i': None, 'galflux_z': None})
             q = build_galflux_query(cand['ra'], cand['dec'])
             if opts.verbose:
                 print dedent(q)
             res = conn.quick(q)
-            res = {'galflux_' + r['band']: r['galflux'] for r in res}
-            meta.update(res)
+            meta.update({'galflux_' + row['band']: row['galflux']
+                         for row in res})
 
         # HACK ----------------------------------------------------------
         # `None` in num* columns means `0`.
@@ -584,11 +587,12 @@ if __name__ == "__main__":
 
         elif opts.format == 'fits':
             # Convert missing values to something writable.
-            for key in ['host_photoz', 'host_photoz_err', 'host_specz',
-                        'host_specz_err', 'host_separation']:
-                if meta[key] is None: meta[key] = np.nan
-            if meta['host_specz_catalog'] is None:
-                meta['host_specz_catalog'] = ''
+            for key in meta:
+                if meta[key] is None:
+                    if key == 'host_specz_catalog':
+                        meta[key] = ''
+                    else:
+                        meta[key] = np.nan
             meta_list.append(meta)
             data_list.append(data) 
 
