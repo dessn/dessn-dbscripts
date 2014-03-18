@@ -150,9 +150,11 @@ def parse_args():
                       help="maximum number of light curves to get (default "
                       "behaviour is to get all 'good' light curves)")
     parser.add_option("-a", "--all", default=False, action="store_true",
-                      help="get all candidates, regardless of cand_type "
-                      "(default: get only candidates that have "
-                      "cand_type=0, indicating current, good)")
+                      help="get all candidates, regardless of cand_type."
+                      "[DEPRECATED: use --candtype]")
+    parser.add_option("--candtype", default=-5,
+                      help="Get only candidates with this cand_type value, "
+                      "or 'all' to disregard cand_type (default: -5)")
     parser.add_option("--infile", default=None,
                       help="Read SNIDs from this file instead of arguments.")
     parser.add_option("--mindate", default=None,
@@ -205,6 +207,11 @@ def parse_args():
     else:
         snids = args
     
+    if opts.candtype == 'all':
+        opts.all = True
+    else:
+        opts.candtype = int(opts.candtype)
+
     if opts.table not in TABLES:
         print "Table must be one of: " + ",".join(TABLES)
         sys.exit(1)
@@ -284,7 +291,7 @@ def build_cand_query(snids, opts):
 
     # specify cand_type=0 if we didn't request specific candidates:
     if len(snids) == 0 and (not opts.all):
-        q += "    AND c.cand_type=0\n"
+        q += "    AND c.cand_type={0:d}\n".format(opts.candtype)
 
     # Any specific dates?
     if opts.mindate is not None:
