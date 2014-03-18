@@ -42,7 +42,7 @@ A single file per candidate. Each file has metadata lines signified by
 exerpt:
 
 ```
-...
+... [clipped] ...
 @host_photoz 0.278620004654
 @host_specz NULL
 @host_separation 0.518048524857
@@ -54,7 +54,7 @@ time field band flux fluxerr zp zpsys status expnum image_id ccdnum psf_nea chip
 56536.2285244 C2 r -9241.23 14385.2 31.4 ab 17 229379 470887770 21 1.674 12.2332 30.287 0.054
 56536.2306145 C2 i -4916.34 2744.28 31.4 ab 17 229380 470962346 21 1.639 22.4209 30.856 0.092
 56536.2332765 C2 z 588.089 715.499 31.4 ab 1 229381 470944977 21 1.4915 46.8239 31.2981 0.081
-...
+... [clipped] ...
 ```
 
 **JSON**
@@ -85,6 +85,8 @@ is an example of how to loop over the first 10 candidates in the file
 using the `fitsio` python package:
 
 ```python
+import fitsio
+
 f = fitsio.FITS("candidates.fits")  # open file for reading
 for meta in f[1][0:10]:
 
@@ -96,6 +98,26 @@ for meta in f[1][0:10]:
     data = f[2][start:end]
     # ... do stuff with data, which is a numpy structured array
 ```
+
+with the `astropy.io.fits` package, this would instead be:
+
+```python
+from astropy.io import fits
+
+f = fits.open("candidates.fits")
+for meta in f[1].data[0:10]:
+    start = meta['datastart']
+    end = meta['dataend']
+    data = f[2].data[start:end]
+    # ... do stuff with data array
+```
+
+in this case, `data` is a `FITS_rec` object rather than a
+`numpy.ndarray` object. It should act mostly like a structured array,
+but if you have problems, you can do `data = data.view(np.ndarray)` to
+explicitly get a view of the object as a structured array.
+
+
 
 
 ## get-des-obsinfo
@@ -110,6 +132,15 @@ get-des-obsinfo --infile positions.txt -o output.txt  # Read positions from file
 get-des-obsinfo -c -o output.txt       # Cache DB query results in local file
 ```
 
+(Run `get-des-obsinfo --help` for full option list and descriptions.)
+
+If the cache option `-c` is specified, a file named
+`des-obsinfo-cache.npy` is created in the current directory. This
+contains the results of the database query (metadata about images in
+SN fields). The database query takes the vast majority of the runtime,
+so use this option when running mulitple times or when testing. When
+starting, `get-des-obsinfo` first checks if such a file exists; if so,
+the file is read and no database query is performed.
 
 ## get-cand-imageinfo
 
@@ -117,3 +148,33 @@ Given a candidate's SNID, retrieve information about which images in the
 database overlap its position.  The information is sufficient to
 determine the path of the images so that they can be downloaded from
 NCSA.
+
+```shell
+$ get-cand-imageinfo -o test.csv 640759
+Querying database (this may take a few minutes)...
+Query took 249.1 seconds, 266.95 MB array.
+Saving to des-imageinfo-cache.npy...
+SNID 640759: ra=53.84758 dec=-25.395892
+575319 total images from SN fields.
+226808 images after removing re-runs.
+960 images overlapping the position on 944 unique exposures and 5 unique ccds.
+Wrote image info: test.csv
+```
+
+Then the file `test.csv` will contain:
+
+```
+field,expnum,ccd,latestrun
+C3,g,149739,23,20130720091122_20121110
+C3,g,149740,23,20130720091122_20121110
+C3,g,149741,23,20130720091122_20121110
+[... etc ...]
+```
+
+From this information, images can be fetched from NCSA directories using the
+pattern:
+
+```
+https://${HOST}/DESFiles/desardata/OPS/red/${LATESTRUN}/red/DECam_${EXPNUM}/DECam_${EXPNUM}_${CCD}.fits.fz
+```
+where `$HOST` is the NCSA file server.

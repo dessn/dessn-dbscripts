@@ -1,122 +1,271 @@
 #!/usr/bin/env python
-"""Fetch image metadata from NCSA database for images containing the given
+"""%prog [options] SNID
+
+Fetch image metadata from NCSA database for images containing the given
 supernova candidate.
 """
 
 import os
 import sys
-from sys import stderr, stdout
 import math
 import time
+from optparse import OptionParser
+
 import numpy as np
 import desdb
 
+# Definitions of field bounds in RA, Dec
+bounds = {'C': (51.2, 55.6, -30.2, -26.0),
+          'X': (33.3, 37.6,  -7.5,  -3.5),
+          'E': ( 6.2, 11.2, -45.1, -41.9),
+          'S': (40.0, 44.0,  -2.0,   1.2)}
+cache_filename = 'des-imageinfo-cache.npy'
 
-if __name__ == '__main__':
-
-    # Parse arguments
-    args = sys.argv[1:]
+def parse_args():
+    parser=OptionParser(__doc__)
+    parser.add_option('-o', '--outfile', default=None,
+                      help='name of file to write output to [REQUIRED]')
+    opts, args = parser.parse_args(sys.argv[1:])
+    if opts.outfile is None:
+        print "must specify output file."
+        exit()
     if len(args) != 1:
-        stderr.write("exactly 1 argument")
-        sys.exit(1)
-    snid = args[0]
+        parser.print_usage()
+        exit()
+    snid = int(args[0])
 
-    conn=desdb.Connection()
+    return opts, snid
 
-    query = """
-    select
-        ra,
-        dec
-    from
+
+def build_radec_query(snid):
+    return """
+    SELECT
+        ra, dec
+    FROM
         sncand
-    where
+    WHERE
         snid = {:d}
-    """.format(args.snid)
-    data = conn.quick(query)
+    """.format(snid)
 
-    ra, dec = data[0]['ra'], data[0]['dec']
-    print "ra={:9.6f} dec={:9.6f}".format(ra, dec)
+# Old method for querying, based on the ccd center being "near" the position.
+#    boxrad = (2048. * 0.27) / 3600.  # half of ccd length in degrees
+#    dra = boxrad + math.cos(dec * math.pi/180.)
+#    ddec = boxrad
 
-    query = """
-    select
-        i.id,
-        i.imagename,
-        i.exposureid,
-        e.exposurename,
+def build_red_image_query():
+
+    q = """
+    SELECT
+        e.id as exposureid,
         e.expnum,
+        substr(e.object, 22, 2) field,
+        e.mjd_obs,
+        /* e.exposurename, */
+        i.id,
+        /* i.imagename, */
         i.ccd,
         i.run,
         i.band,
-        i.naxis1,
-        i.crval1,
-        i.crpix1,
+        i.cunit1,
+        i.cunit2,
+        i.ctype1,
+        i.ctype2,
         i.cd1_1,
         i.cd1_2,
-        i.naxis2,
-        i.crval2,
-        i.crpix2,
         i.cd2_1,
-        i.cd2_2
-    from
+        i.cd2_2,
+        i.crval1,
+        i.crval2,
+        i.crpix1,
+        i.crpix2,
+        i.pv1_0, i.pv1_1, i.pv1_2, i.pv1_3, i.pv1_4, i.pv1_5,
+        i.pv1_6, i.pv1_7, i.pv1_8, i.pv1_9, i.pv1_10,
+        i.pv2_0, i.pv2_1, i.pv2_2, i.pv2_3, i.pv2_4, i.pv2_5,
+        i.pv2_6, i.pv2_7, i.pv2_8, i.pv2_9, i.pv2_10,
+        i.naxis1,
+        i.naxis2
+    FROM
         image i,
         exposure e
-    where
-        i.ra between {:f} and {:f} and
-        i.dec between {:f} and {:f} and
-        i.imagetype='red' and
-        i.exposureid = e.id and
-        e.object like 'DES supernova hex %' and
-        i.ccd != 61 and
-        (i.cd2_2 * ({:f}-i.crval1) - i.cd1_2 * ({:f}-i.crval2))/
-            (i.cd1_1*i.cd2_2 - i.cd1_2*i.cd2_1) + i.crpix1
-            between 1 and i.naxis1 and
-        (-i.cd2_1 * ({:f}-i.crval1) + i.cd1_1 * ({:f}-i.crval2))/
-            (i.cd1_1*i.cd2_2 - i.cd1_2*i.cd2_1) + i.crpix2
-            between 1 and i.naxis2
-    order by
-        i.exposureid,
+    WHERE
+        e.object like 'DES supernova hex %' AND
+        i.exposureid = e.id AND
+        i.imagetype = 'red' AND
+        i.ccd != 61
+    ORDER BY
+        e.expnum,
         i.ccd,
         i.run
     """
+    return q
 
-    boxrad = (2048. * 0.27) / 3600.  # half of ccd length in degrees
-    dra = boxrad + math.cos(dec * math.pi/180.)
-    ddec = boxrad
-    query = query.format(ra - dra, ra + dra,
-                         dec - ddec, dec + ddec,
-                         ra, dec,
-                         ra, dec)
+def pix2world(x, y, wcsdata, pv=False):
+    """Convert from pixel to world coordinates in degrees.
 
-    print "Querying database for images..."
-    t0 = time.time()
-    data = conn.quick(query, array=True)
-    dt = time.time() - t0
-    print "took {:5.1f} seconds.".format(dt)
-    print ("Found {:d} total images from {:d} unique "
-           "exposures on {:d} unique ccds."
-           .format(len(data), len(np.unique(data['exposureid'])),
-                   len(np.unique(data['ccd']))))
+    Only array-wise operations are used, so that x, y and wcsdata can be
+    arrays (as long as they are broadcastable).
+
+    Uses treatment of PV?_? keywords described here:
+    www.cadc-ccda.hia-iha.nrc-cnrc.gc.ca/megapipe/docs/CD_PV_keywords.pdf
+    """
+
+    x_off = x - wcsdata['crpix1']
+    y_off = y - wcsdata['crpix2']
+    xi = wcsdata['cd1_1'] * x_off + wcsdata['cd1_2'] * y_off
+    eta = wcsdata['cd2_1'] * x_off + wcsdata['cd2_2'] * y_off
+
+    if pv:
+        r = np.sqrt(xi**2 + eta**2)
+        xi = (wcsdata['pv1_0'] +
+              wcsdata['pv1_1'] * xi +
+              wcsdata['pv1_2'] * eta +
+              wcsdata['pv1_3'] * r +
+              wcsdata['pv1_4'] * xi**2 +
+              wcsdata['pv1_5'] * xi * eta +
+              wcsdata['pv1_6'] * eta**2 +
+              wcsdata['pv1_7'] * xi**3 +
+              wcsdata['pv1_8'] * xi**2 * eta +
+              wcsdata['pv1_9'] * xi * eta**2 +
+              wcsdata['pv1_10'] * eta**3)
+        eta = (wcsdata['pv2_0'] +
+               wcsdata['pv2_1'] * eta +
+               wcsdata['pv2_2'] * xi +
+               wcsdata['pv2_3'] * r +
+               wcsdata['pv2_4'] * eta**2 +
+               wcsdata['pv2_5'] * eta * xi +
+               wcsdata['pv2_6'] * xi**2 +
+               wcsdata['pv2_7'] * eta**3 +
+               wcsdata['pv2_8'] * eta**2 * xi +
+               wcsdata['pv2_9'] * eta * xi**2 +
+               wcsdata['pv2_10'] * xi**3)
+
+    # Convert values to radians
+    xi_r = (np.pi / 180.) * xi
+    eta_r = (np.pi / 180.) * eta
+    crval1_r = (np.pi / 180.) * wcsdata['crval1']
+    crval2_r = (np.pi / 180.) * wcsdata['crval2']
+
+    denom = 1. - eta_r * np.tan(crval2_r)
+    alpha = np.arctan(xi_r / np.cos(crval2_r) / denom)
+    ra = alpha + crval1_r
+    dec = np.arctan((eta_r + np.tan(crval2_r)) * np.cos(alpha) / denom)
+
+    # Return values in degrees
+    return (180./np.pi) * ra, (180./np.pi) * dec
+
+
+def world2pix(ra, dec, wcsdata, pv_approx=False):
+    """Convert from RA, Dec to pixel positions.
+
+    No distortion terms are applied, because this cannot be done array-wise.
+    Rather, it requires iteration using the forward solution.
+    """
+
+    ra_r = (np.pi / 180.) * ra
+    dec_r = (np.pi / 180.) * dec
+    crval1_r = (np.pi / 180.) * wcsdata['crval1']
+    crval2_r = (np.pi / 180.) * wcsdata['crval2']
+
+    eta = ((1. - np.tan(crval2_r) * np.cos(ra_r - crval1_r) / np.tan(dec_r)) /
+           (np.tan(crval2_r) + np.cos(ra_r - crval1_r) / np.tan(dec_r)))
+    xi = np.tan(ra_r-crval1_r) * np.cos(crval2_r) * (1. - eta*np.tan(crval2_r))
+
+    # Convert to degrees
+    xi = (180./np.pi) * xi
+    eta = (180./np.pi) * eta
+
+    # Invert cd matrix
+    det = (wcsdata['cd1_1'] * wcsdata['cd2_2'] -
+           wcsdata['cd1_2'] * wcsdata['cd2_1'])
+    dc1_1 = wcsdata['cd2_2'] / det
+    dc1_2 = -wcsdata['cd1_2'] / det
+    dc2_1 = -wcsdata['cd2_1'] / det
+    dc2_2 = wcsdata['cd1_1'] / det
+    
+    x = dc1_1 * xi + dc1_2 * eta + wcsdata['crpix1']
+    y = dc2_1 * xi + dc2_2 * eta + wcsdata['crpix2']
+
+    if pv_approx:
+        # Correct for one iteration of distortion correction:
+        # Find the difference in x,y  when we do the forward dist. correction
+        ra2, dec2 = pix2world(x, y, wcsdata, pv=True)
+        x2, y2 = world2pix(ra2, dec2, wcsdata, pv_approx=False)
+
+        # x2, y2 is off from x, y by the correction
+        x_corr = x - x2
+        y_corr = y - y2
+        
+        # Correct
+        x = x + x_corr
+        y = y + y_corr
+
+    return x, y
+
+# Main --------------------------------------------------------------------- #
+if __name__ == '__main__':
+
+    # Get arguments
+    opts, snid = parse_args()
+    conn = desdb.connect(dbname='desoper')
+
+    # Run the query or load pre-saved results.
+    if os.path.exists(cache_filename):
+        print "Loading from {0}...".format(cache_filename)
+        data = np.load(cache_filename)
+    else:
+        print "Querying database (this can take up to 10 minutes)..."
+        q = build_red_image_query()
+        t0 = time.time()
+        data = conn.quick(q, array=True)
+        t1 = time.time()
+        print "Query took {0:.1f} seconds, {1:.2f} MB array.".format(
+            t1 - t0, data.nbytes / 1.e6)
+        if True:
+            print "Saving to {0}...".format(cache_filename)
+            np.save(cache_filename, data)
+
+    # Get the RA, Dec of the requested candidate
+    q = build_radec_query(snid)
+    pos = conn.quick(q)
+    ra, dec = pos[0]['ra'], pos[0]['dec']
+    print "SNID {0}: ra={1:9.6f} dec={2:9.6f}".format(snid, ra, dec)
+
+    print "{0:d} total images from SN fields.".format(len(data))
 
     # Get just the latest processing run for each exposure/ccd.
     # This counts on the data being ordered by exposureid, ccd, run.
     indicies_to_use = []
     for i in range(1, len(data)):
-        if not (data['exposureid'][i] == data['exposureid'][i-1] and
+        if not (data['expnum'][i] == data['expnum'][i-1] and
                 data['ccd'][i] == data['ccd'][i-1]):
             indicies_to_use.append(i-1)
     indicies_to_use.append(len(data)-1)
     data = data[indicies_to_use]
+    print "{0:d} images after removing re-runs.".format(len(data))
+
+    # Which images overlap the position?
+    x, y = world2pix(ra, dec, data, pv_approx=True)
+    mask = ((x > 0.5) & (x < data['naxis1'] + 0.5) &
+            (y > 0.5) & (y < data['naxis2'] + 0.5))
+    posdata = data[mask]
+    print ("{0:d} images overlapping the position on "
+           "{1:d} unique exposures and {2:d} unique ccds."
+           .format(len(posdata), len(np.unique(posdata['expnum'])),
+                   len(np.unique(posdata['ccd']))))
+
+    #for name in bounds.keys():
+    #    print ("    {0}: RA=[{1:5.1f},{2:5.1f}] Dec=[{3:5.1f},{4:5.1f}]"
+    #           .format(name, bounds[name][0], bounds[name][1],
+    #                   bounds[name][2], bounds[name][3]))
 
     # Save to file
-    fname = os.path.join(image_metadata_dir,
-                         '{:d}_images.csv'.format(args.snid))
-    #with open(fname, 'w') as outfile:
-    stdout.write('expnum,ccd,latestrun\n')
-    for i in range(len(data)):
-        stdout.write('{:d},{:d},{:s}\n'.format(data['expnum'][i],
-                                               data['ccd'][i],
-                                               data['run'][i]))
-    print "Wrote image info:", fname
-
-if __name__ == '__main__':
-    main()
+    with open(opts.outfile, 'w') as outfile:
+        outfile.write('field,band,expnum,ccd,latestrun\n')
+        for i in range(len(posdata)):
+            outfile.write('{0:s},{1:s},{2:d},{3:d},{4:s}\n'
+                          .format(posdata['field'][i],
+                                  posdata['band'][i],
+                                  posdata['expnum'][i],
+                                  posdata['ccd'][i],
+                                  posdata['run'][i]))
+    print "Wrote image info:", opts.outfile
