@@ -161,7 +161,11 @@ SNID 640759: ra=53.84758 dec=-25.395892
 Wrote image info: test.csv
 ```
 
-Then the file `test.csv` will contain:
+The first time this is run, it has to download metadata for all images
+in the SN fields, so it takes a long time. However, the script caches
+the results and uses the cache file (if available) on subsequent runs.
+
+In the above example, the file `test.csv` will contain:
 
 ```
 field,expnum,ccd,latestrun
