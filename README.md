@@ -6,14 +6,21 @@ from the DES database.
 ## Installation
 
 The scripts are stand-alone. Copy the scripts to a directory on your
-`PATH`, or just specify the full path to the script when running
-it. You must have the following Python libraries installed:
+path, or just specify the full path to the script when running
+it. You must have the following Python version and libraries installed:
 
 * Python 2.6 or 2.7
-* numpy
 * cx_Oracle
-* desdb
-* fitsio (optional)
+* [desdb](https://github.com/esheldon/desdb)
+* numpy
+* [fitsio](https://github.com/esheldon/fitsio) (optional for FITS output in get-des-lightcurves)
+
+The desdb package is used for credential management so that database
+credentials can be kept in an external `.netrc` file. See the
+desdb package for details. It is a pure Python package and therefore
+should be easy to install from source.
+
+NumPy is used to more easily manipulate tables of downloaded data.
 
 ## get-des-lightcurves
 
@@ -168,7 +175,7 @@ the results and uses the cache file (if available) on subsequent runs.
 In the above example, the file `test.csv` will contain:
 
 ```
-field,expnum,ccd,latestrun
+field,band,expnum,ccd,latestrun
 C3,g,149739,23,20130720091122_20121110
 C3,g,149740,23,20130720091122_20121110
 C3,g,149741,23,20130720091122_20121110
