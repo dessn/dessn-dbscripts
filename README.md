@@ -156,7 +156,7 @@ database overlap its position.  The information is sufficient to
 determine the path of the images so that they can be downloaded from
 NCSA.
 
-```shell
+```bash
 $ get-cand-imageinfo -o test.csv 640759
 Querying database (this may take a few minutes)...
 Query took 249.1 seconds, 266.95 MB array.
