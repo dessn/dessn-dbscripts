@@ -179,7 +179,7 @@ the results of the long-running query in a file named
 `des-iamgeinfo-cache.npy` and uses the cache file (if available) on
 subsequent runs, which are then much faster.
 
-In the above example, the file `test.csv` will contain:
+In the above example, the file `640759.csv` will contain:
 
 ```
 field,band,expnum,ccd,latestrun,imagetype,imagename
