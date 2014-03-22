@@ -151,34 +151,41 @@ the file is read and no database query is performed.
 
 ## get-cand-imageinfo
 
-Given a candidate's SNID, retrieve information about which images in the
-database overlap its position.  The information is sufficient to
-determine the path of the images so that they can be downloaded from
-NCSA.
+Given a candidate SNID or position, retrieve information about images
+that contain it.  The information retrieved is sufficient to determine
+the path of the images so that they can be downloaded from NCSA.
+
+In order to tell if a given position is contained in a given image,
+the full WCS solution of the image is required, including `PV?_??`
+keywords. This script downloads the WCS values for every image in the
+SN fields from the database, and uses the WCS solution to determine
+which images cover the given position(s). Here is an example:
 
 ```bash
-$ get-cand-imageinfo -o test.csv 640759
+$ get-cand-imageinfo 640759
 Querying database (this may take a few minutes)...
 Query took 249.1 seconds, 266.95 MB array.
 Saving to des-imageinfo-cache.npy...
-SNID 640759: ra=53.84758 dec=-25.395892
 575319 total images from SN fields.
-226808 images after removing re-runs.
-960 images overlapping the position on 944 unique exposures and 5 unique ccds.
-Wrote image info: test.csv
+221695 images after removing re-runs.
+SNID   640759: ra=53.285743 dec=-27.902316
+               928 images / 928 unique exposures / 5 unique ccds
+               Wrote image info to 640759.csv
 ```
 
-The first time this is run, it has to download metadata for all images
-in the SN fields, so it takes a long time. However, the script caches
-the results and uses the cache file (if available) on subsequent runs.
+The first time the script is run, it has to download metadata for all
+images in the SN fields, so it takes a long time. The script caches
+the results of the long-running query in a file named
+`des-iamgeinfo-cache.npy` and uses the cache file (if available) on
+subsequent runs, which are then much faster.
 
 In the above example, the file `test.csv` will contain:
 
 ```
-field,band,expnum,ccd,latestrun
-C3,g,149739,23,20130720091122_20121110
-C3,g,149740,23,20130720091122_20121110
-C3,g,149741,23,20130720091122_20121110
+field,band,expnum,ccd,latestrun,imagetype,imagename
+C3,g,149739,23,20130720091122_20121110,red,DECam_149739_23.fits.fz
+C3,g,149740,23,20130720091122_20121110,red,DECam_149740_23.fits.fz
+C3,g,149741,23,20130720091122_20121110,red,DECam_149741_23.fits.fz
 [... etc ...]
 ```
 
@@ -186,6 +193,36 @@ From this information, images can be fetched from NCSA directories using the
 pattern:
 
 ```
-https://${HOST}/DESFiles/desardata/OPS/red/${LATESTRUN}/red/DECam_${EXPNUM}/DECam_${EXPNUM}_${CCD}.fits.fz
+https://${HOST}/DESFiles/desardata/OPS/red/${LATESTRUN}/red/DECam_${08d:EXPNUM}/${IMAGENAME}
 ```
 where `$HOST` is the NCSA file server.
+
+### Difference image mode
+
+By default, metadata for reduced ("red") images is retrieved. To instead
+get information for difference images, run with the `--diff` flag. 
+
+If run in `--diff` mode, the path to the data will be
+
+```
+https://${HOST}/DESFiles/desardata/OPS/diff/${LATESTRUN}/${IMAGETYPE}/DECam_${08d:EXPNUM}/${IMAGENAME}
+```
+
+for example,
+
+```
+https://${HOST}/DESFiles/desardata/OPS/diff/20140211085833_20140209/diff_single_diff/DECam_00283732/SN_283732_SN-C2_tile20_g_01_fakeSN_diff_mh.fits
+```
+
+### Arbitrary positions
+
+Rather than supplying an SNID, one can supply an RA, Dec. pair or multiple
+pairs:
+
+```
+get-cand-imageinfo 37.3066,-4.33395
+get-cand-imageinfo 37.3066,-4.33395 34.05,-3.80
+```
+
+This also works with the `--diff` option. Though arbitrary coordinates
+are accepted, only images in the SN fields are checked for overlap.
