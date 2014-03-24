@@ -18,6 +18,7 @@ import desdb
 
 cache_filename = 'des-imageinfo-cache.npy'
 cache_filename_diff = 'des-imageinfo-cache-diff.npy'
+cache_filename_search = 'des-imageinfo-cache-search.npy'
 
 image_query_template = """
 SELECT DISTINCT
@@ -71,11 +72,19 @@ def parse_args():
     parser.add_option('--diff', default=False, action="store_true",
                       help="Fetch metadata for nightly difference images "
                       "rather than reduced ('red') images.")
+    parser.add_option('--search', default=False, action="store_true",
+                      help="Fetch metadata for nightly search images: the "
+                      "combined image for deep fields griz and shallow field "
+                      "z-band, and the single image for shallow field "
+                      "gri-band rather than reduced ('red') images.")
     parser.add_option('-o', '--outfile', default='{snid}.csv',
                       help="Format of filename to write output. Must "
                       "contain '{snid}' which will be replaced by the SNID "
                       "for each candidate. Default: '{snid}.csv'.")
     opts, args = parser.parse_args(sys.argv[1:])
+    if opts.diff and opts.search:
+        print "Conflicting options: --diff and --search"
+        exit()
     if len(args) == 0:
         parser.print_usage()
         exit()
@@ -124,6 +133,31 @@ def build_diff_image_query():
 
     """
     return image_query_template.format(condition)
+
+def build_search_image_query():
+    condition = """
+    (
+      /* coadd image if deep field or z band */
+      (i.imagetype='diff_nitecmb_search'
+       and
+       (substr(e.object,22,2) in ('C3','X3') or i.band='z'))
+
+      or
+
+      /* single image if shallow field and gri band */
+      (i.imagetype='diff_single_search'
+       and
+       substr(e.object,22,2) in ('C1','C2','E1','E2','S1','S2','X1','X2')
+       and
+       i.band in ('g', 'r', 'i'))
+    )
+    AND
+    i.imagename not like '%_temp_%'  /* eliminate _temp_ images */
+
+    """
+    return image_query_template.format(condition)
+
+
 
 def pix2world(x, y, wcsdata, pv=False):
     """Convert from pixel to world coordinates in degrees.
@@ -237,6 +271,9 @@ if __name__ == '__main__':
     if opts.diff:
         cachename = cache_filename_diff
         q = build_diff_image_query()
+    elif opts.search:
+        cachename = cache_filename_search
+        q = build_search_image_query()
     else:
         cachename = cache_filename
         q = build_red_image_query()

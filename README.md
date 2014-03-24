@@ -197,12 +197,22 @@ https://${HOST}/DESFiles/desardata/OPS/red/${LATESTRUN}/red/DECam_${08d:EXPNUM}/
 ```
 where `$HOST` is the NCSA file server.
 
-### Difference image mode
+### Difference image and search image modes
 
-By default, metadata for reduced ("red") images is retrieved. To instead
-get information for difference images, run with the `--diff` flag. 
+By default, metadata for reduced ("red") images is retrieved. To
+instead get information for difference images or search images, run
+with the `--diff` or `--search` flag. Both difference image and search
+images are created in the SN difference imaging pipeline:
 
-If run in `--diff` mode, the path to the data will be
+* "search" images: The nightly combined image when multiple exposures
+  exist for a given field/band, and the single image otherwise. That
+  is: this will be the combined image for DEEP griz and SHALLOW z, and
+  the single image for SHALLOW gri.
+
+* "diff" images: The "search" image, after the template/reference image has
+  been subtracted.
+
+If run in either of these modes, the path to the data will be
 
 ```
 https://${HOST}/DESFiles/desardata/OPS/diff/${LATESTRUN}/${IMAGETYPE}/DECam_${08d:EXPNUM}/${IMAGENAME}
@@ -224,5 +234,6 @@ get-cand-imageinfo 37.3066,-4.33395
 get-cand-imageinfo 37.3066,-4.33395 34.05,-3.80
 ```
 
-This also works with the `--diff` option. Though arbitrary coordinates
-are accepted, only images in the SN fields are checked for overlap.
+This also works with the `--diff` and `--search` options. Though
+arbitrary coordinates are accepted, only images in the SN fields are
+checked for overlap.
