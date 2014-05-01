@@ -29,6 +29,7 @@ import os
 import sys
 import math
 import time
+import csv
 from optparse import OptionParser
 
 import numpy as np
@@ -64,8 +65,11 @@ cache_filename = 'des-obsinfo-cache.npy'
 
 parser=OptionParser(__doc__)
 parser.add_option('--infile', default=None,
-                  help='if specified, use positions read from this file '
-                  '(format is space-separated RA and Dec on each line)')
+                  help='If specified, use positions read from this file. '
+                  'Format: csv (comma-separated values) with csv header '
+                  'line. "RA" and "DEC" (case-insensitive) must '
+                  'appear in header line. Additional fields are '
+                  'written to final SIMLIB file.')
 parser.add_option('-o', '--outfile', default=None,
                   help='name of file to write output to [REQUIRED]')
 parser.add_option('-n', type='int', default=100,
@@ -376,10 +380,19 @@ def main():
         msg = "Reading positions from {0}".format(options.infile)
         print msg
         positions = []
-        with open(options.infile, 'r') as infile:
-            for line in infile:
-                words = line.split()
-                positions.append((float(words[0]), float(words[1])))
+        with open(options.infile, 'r') as f:
+            keys = f.readline().upper().strip().split(',')
+            if ('RA' not in keys) or ('DEC' not in keys):
+                print "RA and DEC must appear in first line of infile"
+                exit(1)
+            for line in f:
+                positions.append(dict(zip(keys, line.split(','))))
+
+        # Convert RA, DEC to floats
+        for pos in positions:
+            pos['RA'] = float(pos['RA'])
+            pos['DEC'] = float(pos['DEC'])
+
         ntarget = len(positions)
         msg += '... {0:d} positions'.format(ntarget)
         out.write('#{0}\n'.format(msg))
@@ -413,10 +426,13 @@ def main():
         # Get a position
         if options.infile:
             if len(positions) == 0: break
-            ra, dec = positions.pop(0)
+            extrakeys = positions.pop(0)
+            ra = extrakeys.pop('RA')
+            dec = extrakeys.pop('DEC')
         else:
             ra, dec = get_random_position()
-
+            extrakeys = {}
+            
         # which images might the position *possibly* overlap?
         mask = ((ra > ra_min) & (ra < ra_max) &
                 (dec > dec_min) & (dec < dec_max))
@@ -436,6 +452,10 @@ def main():
             # Write header and entries for this position to SIMLIB file
             out.write(head_template.format(ngood, ra, dec, len(posdata),
                                            0., 0.27))
+
+            # Write extra keys
+            for key, val in extrakeys.iteritems():
+                out.write('{}: {}\n'.format(key, val))
 
             # Get unique fields
             fields = np.unique(posdata['field'])
