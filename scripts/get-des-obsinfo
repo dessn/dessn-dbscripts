@@ -31,6 +31,11 @@ import math
 import time
 import csv
 from optparse import OptionParser
+try:
+    from collections import OrderedDict as odict
+except ImportError:
+    odict = dict
+
 
 import numpy as np
 import desdb
@@ -386,7 +391,7 @@ def main():
                 print "RA and DEC must appear in first line of infile"
                 exit(1)
             for line in f:
-                positions.append(dict(zip(keys, line.split(','))))
+                positions.append(odict(zip(keys, line.strip().split(','))))
 
         # Convert RA, DEC to floats
         for pos in positions:
