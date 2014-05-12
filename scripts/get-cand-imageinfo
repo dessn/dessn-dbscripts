@@ -81,6 +81,10 @@ def parse_args():
                       help="Format of filename to write output. Must "
                       "contain '{snid}' which will be replaced by the SNID "
                       "for each candidate. Default: '{snid}.csv'.")
+    parser.add_option('--cachefile', default=None,
+                      help="File to use as cache. Default is "
+                      "des-imageinfo-cache[-diff,-search].npy "
+                      "depending on --diff  and --search flags.")
     opts, args = parser.parse_args(sys.argv[1:])
     if opts.diff and opts.search:
         print "Conflicting options: --diff and --search"
@@ -277,6 +281,10 @@ if __name__ == '__main__':
     else:
         cachename = cache_filename
         q = build_red_image_query()
+
+    # see if user defined custom cache file location
+    if opts.cachefile is not None:
+        cachename = opts.cachefile
 
     # Run the query or load pre-saved results.
     if os.path.exists(cachename):
