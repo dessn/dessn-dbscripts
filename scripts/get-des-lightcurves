@@ -172,6 +172,9 @@ def parse_args():
                       help="maximum fake_id (only effective with --fake flag)")
 
     # Content: which table? optional metadata?
+    parser.add_option("--candtable", default='sncand_legacy',
+                      help="Table to query for candidates: sncand, "
+                      "sncand_legacy (default: sncand_legacy)") 
     parser.add_option("-t", "--table", default='snforce',
                       help=("table from which to retrieve photometry: "+
                             ",".join(TABLES) + " (default: snforce)"))
@@ -211,6 +214,10 @@ def parse_args():
         opts.all = True
     else:
         opts.candtype = int(opts.candtype)
+
+    if opts.candtable not in ["sncand", "sncand_legacy"]:
+        print "candtable must be one of: sncand, sncand_legacy"
+        sys.exit(1)
 
     if opts.table not in TABLES:
         print "Table must be one of: " + ",".join(TABLES)
@@ -252,14 +259,15 @@ def build_cand_query(snids, opts):
         q = dedent(
             """
             SELECT
-                c.snid, c.ra, c.dec, c.cand_type, c.cand_desc, c.numepochs,
+                c.snid, c.transient_id, c.transient_name, c.ra, c.dec,
+                c.cand_type, c.cand_desc, c.numepochs,
                 c.numobs, c.num_real, c.num_artifact, c.num_unsure,
                 c.num_unscanned, c.entry_date, c.snfake_id as fake_id
             FROM
-                sncand c
+                {0} c
             WHERE
                 c.snfake_id=0
-            """)
+            """.format(opts.candtable))
         if len(snids) == 0:
             q += "    AND c.num_real >= 2\n"
 
@@ -268,18 +276,19 @@ def build_cand_query(snids, opts):
         q = dedent(
             """
             SELECT
-                c.snid, c.ra, c.dec, c.cand_type, c.cand_desc, c.numepochs,
+                c.snid, c.transient_id, c.transient_name, c.ra, c.dec,
+                c.cand_type, c.cand_desc, c.numepochs,
                 c.numobs, c.num_real, c.num_artifact, c.num_unsure,
                 c.num_unscanned, c.entry_date, c.snfake_id as fake_id,
                 f.galid as fake_galid, f.z as fake_z,
                 f.peakmjd as fake_peakmjd, f.host_angsep as fake_hostsep,
                 f.hostmag_i as fake_hostmag_i
             FROM
-                sncand c, snfake f
+                {0} c, snfake f
             WHERE
                 c.snfake_id>0
                 AND c.snfake_id=f.id
-            """)
+            """.format(opts.candtable))
         if opts.minfakeid >= 0:
             q += "    AND c.snfake_id >= {0:d}".format(opts.minfakeid)
         if opts.maxfakeid >= 0:
@@ -287,7 +296,25 @@ def build_cand_query(snids, opts):
 
     # Get just certain candidates?
     if len(snids) > 0:
-        q += "    AND c.snid in (" + ", ".join(snids) + ")\n"
+        # divide ints from non-ints
+        intsnids = []
+        strsnids = []
+        for snid in snids:
+            try:
+                intsnids.append(int(snid))
+            except ValueError:
+                strsnids.append(snid)
+        intsnids = ", ".join([str(snid) for snid in intsnids])
+        strsnids = ", ".join([repr(snid) for snid in strsnids])
+        
+        if intsnids and strsnids:
+            q += ("    AND ((c.snid in ({0})) OR\n"
+                  "         (c.transient_name in ({1})))\n"
+                  .format(intsnids, strsnids))
+        elif intsnids:
+            q += "    AND c.snid in ({0})\n".format(intsnids)
+        elif strsnids:
+            q +=  "    AND c.transient_name in ({0})\n".format(strsnids)
 
     # specify cand_type=0 if we didn't request specific candidates:
     if len(snids) == 0 and (not opts.all):
