@@ -437,7 +437,15 @@ def build_sngals_query(snid):
         g.photoz as host_photoz, g.photoz_err as host_photoz_err,
         g.specz as host_specz, g.specz_err as host_specz_err,
         g.specz_catalog as host_specz_catalog,
-        g.separation as host_separation
+        g.separation as host_separation, g.dlr as host_dlr,
+        g.mag_aper_4_g as host_mag_aper_4_g,
+        g.mag_aper_4_r as host_mag_aper_4_r,
+        g.mag_aper_4_i as host_mag_aper_4_i,
+        g.mag_aper_4_z as host_mag_aper_4_z,
+        g.magerr_aper_4_g as host_magerr_aper_4_g,
+        g.magerr_aper_4_r as host_magerr_aper_4_r,
+        g.magerr_aper_4_i as host_magerr_aper_4_i,
+        g.magerr_aper_4_z as host_magerr_aper_4_z
     FROM
         sngals g
     WHERE
@@ -580,7 +588,12 @@ if __name__ == "__main__":
         # Initialize host info in metadata.
         meta.update({'host_photoz': None, 'host_photoz_err': None,
                     'host_specz': None, 'host_specz_err': None,
-                    'host_specz_catalog': None, 'host_separation': None})
+                    'host_specz_catalog': None, 'host_separation': None,
+                    'host_dlr': None,
+                    'host_mag_aper_4_g': None, 'host_mag_aper_4_r': None,
+                    'host_mag_aper_4_i': None, 'host_mag_aper_4_z': None,
+                    'host_magerr_aper_4_g': None, 'host_magerr_aper_4_r': None,
+                    'host_magerr_aper_4_i': None, 'host_magerr_aper_4_z': None})
 
         # Get host galaxy info from the SNGALS table.
         q = build_sngals_query(cand['snid'])
