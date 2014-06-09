@@ -450,7 +450,7 @@ def build_sngals_query(snid):
         sngals g
     WHERE
         g.snid = {0:d}
-        AND g.host = 1
+        AND (g.host = 1 OR g.dlr_rank = -1)
     """.format(snid)
     return q
 
@@ -602,6 +602,7 @@ if __name__ == "__main__":
         gals = conn.quick(q)
         if len(gals) == 1:
             meta.update(gals[0])
+        # No cases where host=1 AND dlr_rank=-1 by construction
         elif len(gals) > 1:
             raise RuntimeError('More than one matching SNGALS entry with '
                                'HOST=1 for SNID=' + str(cand['snid']))
