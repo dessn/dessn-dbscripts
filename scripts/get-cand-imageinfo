@@ -4,7 +4,8 @@ supernova candidate. In order to tell if a given position is contained
 in a given image, the full WCS solution of the image is required (including
 PV?_?? keywords). This script downloads the WCS values for every image in
 the SN fields, and uses that information to determine which images cover the
-given position(s).
+given position(s). With no positional arguments, the script will just download
+the image metadata but not output any text files.
 """
 
 import os
@@ -66,14 +67,15 @@ ORDER BY
 
 
 def parse_args():
-    parser=OptionParser(usage= '%prog [options] SNID [SNID ...]\n'
+    parser=OptionParser(usage= '%prog [options]\n'
+                        '       %prog [options] SNID [SNID ...]\n'
                         '       %prog [options] RA,DEC [RA,DEC ...]',
                         description=__doc__)
     parser.add_option('--diff', default=False, action="store_true",
-                      help="Fetch metadata for nightly difference images "
+                      help="Nightly difference images "
                       "rather than reduced ('red') images.")
     parser.add_option('--search', default=False, action="store_true",
-                      help="Fetch metadata for nightly search images: the "
+                      help="Nightly search images: the "
                       "combined image for deep fields griz and shallow field "
                       "z-band, and the single image for shallow field "
                       "gri-band rather than reduced ('red') images.")
@@ -88,9 +90,6 @@ def parse_args():
     opts, args = parser.parse_args(sys.argv[1:])
     if opts.diff and opts.search:
         print "Conflicting options: --diff and --search"
-        exit()
-    if len(args) == 0:
-        parser.print_usage()
         exit()
     snids = args
 
@@ -286,11 +285,8 @@ if __name__ == '__main__':
     if opts.cachefile is not None:
         cachename = opts.cachefile
 
-    # Run the query or load pre-saved results.
-    if os.path.exists(cachename):
-        print "Loading from {0}...".format(cachename)
-        data = np.load(cachename)
-    else:
+    # Run the query if cache file is missing.
+    if not os.path.exists(cachename):
         print ("Querying database for image metadata "
                "(this can take several minutes)...")
         t0 = time.time()
@@ -298,9 +294,11 @@ if __name__ == '__main__':
         elapsed = time.time() - t0
         print "Query took {0:d}m{1:4.1f}s, {2:.2f} MB array.".format(
             int(elapsed)/60, elapsed%60, data.nbytes/1.e6)
-        if True:
-            print "Saving to {0}...".format(cachename)
-            np.save(cachename, data)
+        print "Saving to {0}...".format(cachename)
+        np.save(cachename, data)
+    else:
+        print "Loading from {0}...".format(cachename)
+        data = np.load(cachename)
 
     print "{0:d} total images from SN fields.".format(len(data))
 
