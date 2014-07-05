@@ -53,11 +53,18 @@ SELECT DISTINCT
     i.naxis2
 FROM
     image i,
-    exposure e
+    exposure e,
+    run r,
+    run_data_state s
 WHERE
     e.object like 'DES supernova hex %' AND
     i.exposureid = e.id AND
     i.ccd != 61 AND
+    r.run = i.run AND
+    s.run = i.run AND
+    r.status = 0 AND       /* only good runs */
+    s.state != 'JUNK' AND  /* only good runs */
+    r.project = 'OPS' AND  /* TODO: not sure if this is necessary? */
     {0}
 ORDER BY
     e.expnum,
@@ -112,7 +119,12 @@ def build_radec_query(snid):
 #    ddec = boxrad
 
 def build_red_image_query():
-    return image_query_template.format("i.imagetype = 'red'")
+    # We select SNe Single epoch pipeline from Y1 or any image from SV
+    # (mjd 56474 = July 1, 2013)
+
+    return image_query_template.format(
+        "(r.pipeline = 'snese' OR e.mjd_obs < 56474) AND i.imagetype = 'red'")
+
 
 def build_diff_image_query():
     condition = """
