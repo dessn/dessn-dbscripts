@@ -56,7 +56,11 @@ LIBID: {0:d}
 RA: {1:.6f}    DECL: {2:.6f}   NOBS: {3:d}
 MWEBV: {4:.3f}   PIXSIZE: {5:.3f}
 """
-field_template = "FIELD: {0:s}  # CCDS: {1:s}\n"
+field_template = """\
+FIELD: {0:s}  # CCDS: {1:s}
+TEMPLATE_ZPT: {2:s}
+TEMPLATE_SKYSIG: {3:s}
+"""
 
 head_comment = """\
 #                           CCD  CCD           PSF1 PSF2 PSF2/1
@@ -77,6 +81,8 @@ parser.add_option('--infile', default=None,
                   'written to final SIMLIB file.')
 parser.add_option('-o', '--outfile', default=None,
                   help='name of file to write output to [REQUIRED]')
+parser.add_option('--dbname', default='destest',
+                  help='name of database to connect to [default=destest]')
 parser.add_option('-n', type='int', default=100,
                   help='number of entries to generate if infile not given '
                   '(default=100)')
@@ -217,11 +223,32 @@ def world2pix(ra, dec, wcsdata):
 
     return x, y
 
+def point_line_side(pointx, pointy, x1, y1, x2, y2):
+    """Determine what side of a line a point is on.
+
+    Returns positive number if point is on left side of the line from
+    (x1,y1) to (x2,y2).
+    Returns 0 if point is on the line.
+    Returns negative number if point is on the right side.
+    """
+    return (x2-x1) * (pointy-y1) - (y2-y1) * (pointx-x1)
+
+def point_within_quad(pointx, pointy, x1, y1, x2, y2, x3, y3, x4, y4):
+    """Determine if an (x, y) point lies within a quadrilateral.
+
+    (x1, y1) is the first corner of the quadrilateral, (x2,y2) is the adjacent
+    corner proceeding counterclockwise (CCW), etc. Note that the direction
+    is significant.
+    """
+    return ((point_line_side(pointx, pointy, x1, y1, x2, y2) >= 0.) &
+            (point_line_side(pointx, pointy, x2, y2, x3, y3) >= 0.) &
+            (point_line_side(pointx, pointy, x3, y3, x4, y4) >= 0.) &
+            (point_line_side(pointx, pointy, x4, y4, x1, y1) >= 0.))
 
 def main():
 
     options, args = parser.parse_args(sys.argv[1:])
-    conn = desdb.connect(dbname='desoper')
+    conn = desdb.connect(dbname=options.dbname)
     fname = options.outfile
     if fname is None:
         print "must specify output file."
@@ -294,6 +321,37 @@ def main():
         field, oi.ccdnum, oi.nite, oi.band, oi.run
     """
 
+    newquery = """\
+    SELECT DISTINCT
+        oi.ccdnum,
+        oi.nite,
+        oi.band,
+        oi.expnum,
+        (oi.chip_ccdgaina + oi.chip_ccdgainb)/2. as gain,
+        oi.chip_sigsky_search,
+        oi.chip_sigsky_template,
+        oi.psf_nea,
+        oi.chip_zero_point,
+        oi.chip_zero_point_rms,
+        fi.field,
+        f.mjd_obs,
+        fi.rac1,
+        fi.decc1,
+        fi.rac2,
+        fi.decc2,
+        fi.rac3,
+        fi.decc3,
+        fi.rac4,
+        fi.decc4
+    FROM
+        snobsinfo oi, snforce_image fi, snforce f
+    WHERE
+        oi.image_name_diff = fi.image_name_diff and 
+        fi.image_name_diff = f.image_name_diff
+    ORDER BY
+        field, oi.ccdnum, oi.nite, oi.band
+    """
+
     # Run the query or load pre-saved results.
     if os.path.exists(cache_filename):
         print "Loading from {0}...".format(cache_filename)
@@ -301,7 +359,7 @@ def main():
     else:
         print "Querying database (this may take a minute or two)..."
         t0 = time.time()
-        data = conn.quick(query, array=True)
+        data = conn.quick(newquery, array=True)
         print "Query took {0:.2f} seconds, {1:.2f} MB array.".format(
             time.time() - t0, data.nbytes / 1.e6)
         if options.cache:
@@ -313,16 +371,16 @@ def main():
 
     # Get just the latest processing run for each exposure/ccd.
     # This counts on the data being ordered by exposureid, ccd, run.
-    indicies_to_use = []
-    for i in range(1, len(data)):
-        if not (data['expnum'][i] == data['expnum'][i-1] and
-                data['ccdnum'][i] == data['ccdnum'][i-1]):
-            indicies_to_use.append(i-1)
-    indicies_to_use.append(len(data)-1)
-    data = data[indicies_to_use]
-    msg = "HACK: {0:d} records after trimming duplicate runs".format(len(data))
-    print msg
-    out.write('#{0}\n'.format(msg))
+    #indicies_to_use = []
+    #for i in range(1, len(data)):
+    #    if not (data['expnum'][i] == data['expnum'][i-1] and
+    #            data['ccdnum'][i] == data['ccdnum'][i-1]):
+    #        indicies_to_use.append(i-1)
+    #indicies_to_use.append(len(data)-1)
+    #data = data[indicies_to_use]
+    #msg = "HACK: {0:d} records after trimming duplicate runs".format(len(data))
+    #print msg
+    #out.write('#{0}\n'.format(msg))
 
     # Hack to remove dirty data from the table:
     # This is necessary because there were some -9's written to the database.
@@ -355,30 +413,30 @@ def main():
     out.write('#{0}\n'.format(msg))
 
     # Get extent of each image in RA, Dec by finding RA, Dec of image corners.
-    X = np.empty((4, len(data)))
-    Y = np.empty((4, len(data)))
-    X[0, :] = 0.5
-    Y[0, :] = 0.5
-    X[1, :] = data['naxis1'] + 0.5
-    Y[1, :] = 0.5
-    X[2, :] = 0.5
-    Y[2, :] = data['naxis2'] + 0.5
-    X[3, :] = data['naxis1'] + 0.5
-    Y[3, :] = data['naxis2'] + 0.5
-    ra_corners, dec_corners = pix2world(X, Y, data, pv=True)
-    ra_min = np.min(ra_corners, axis=0)
-    ra_max = np.max(ra_corners, axis=0)
-    dec_min = np.min(dec_corners, axis=0)
-    dec_max = np.max(dec_corners, axis=0)
+    #X = np.empty((4, len(data)))
+    #Y = np.empty((4, len(data)))
+    #X[0, :] = 0.5
+    #Y[0, :] = 0.5
+    #X[1, :] = data['naxis1'] + 0.5
+    #Y[1, :] = 0.5
+    #X[2, :] = 0.5
+    #Y[2, :] = data['naxis2'] + 0.5
+    #X[3, :] = data['naxis1'] + 0.5
+    #Y[3, :] = data['naxis2'] + 0.5
+    #ra_corners, dec_corners = pix2world(X, Y, data, pv=True)
+    #ra_min = np.min(ra_corners, axis=0)
+    #ra_max = np.max(ra_corners, axis=0)
+    #dec_min = np.min(dec_corners, axis=0)
+    #dec_max = np.max(dec_corners, axis=0)
 
     # Find offset between fully correct solution and approximation
     # at the center of each image.
-    x_ctr = (data['naxis1'] + 1.) / 2.
-    y_ctr = (data['naxis2'] + 1.) / 2.
-    ra_ctr, dec_ctr = pix2world(x_ctr, y_ctr, data, pv=True)
-    x_approx, y_approx = world2pix(ra_ctr, dec_ctr, data)
-    x_distoff = x_ctr - x_approx  # offset due to distortion
-    y_distoff = y_ctr - y_approx  # offset due to distortion
+    #x_ctr = (data['naxis1'] + 1.) / 2.
+    #y_ctr = (data['naxis2'] + 1.) / 2.
+    #ra_ctr, dec_ctr = pix2world(x_ctr, y_ctr, data, pv=True)
+    #x_approx, y_approx = world2pix(ra_ctr, dec_ctr, data)
+    #x_distoff = x_ctr - x_approx  # offset due to distortion
+    #y_distoff = y_ctr - y_approx  # offset due to distortion
 
     # If input file is defined, read positions.
     if options.infile is not None:
@@ -437,19 +495,31 @@ def main():
         else:
             ra, dec = get_random_position()
             extrakeys = {}
-            
-        # which images might the position *possibly* overlap?
-        mask = ((ra > ra_min) & (ra < ra_max) &
-                (dec > dec_min) & (dec < dec_max))
+
+        mask = point_within_quad(ra, dec,
+                                 data['rac1'], data['decc1'],
+                                 data['rac2'], data['decc2'],
+                                 data['rac3'], data['decc3'],
+                                 data['rac4'], data['decc4'])
+
+        #i = 0
+        #for corner in ['1', '2', '3', '4']:
+        #    print corner, data['rac'+corner][i], data['decc'+corner][i]
+        #exit()
         posdata = data[mask]
-        if len(posdata) > 0:
+
+        # which images might the position *possibly* overlap?
+        #mask = ((ra > ra_min) & (ra < ra_max) &
+        #        (dec > dec_min) & (dec < dec_max))
+        #posdata = data[mask]
+        #if len(posdata) > 0:
             # Which images *actually* overlap the position?
-            x, y = world2pix(ra, dec, posdata)
-            x += x_distoff[mask]
-            y += y_distoff[mask]
-            mask = ((x > 0.5) & (x < posdata['naxis1'] + 0.5) &
-                    (y > 0.5) & (y < posdata['naxis2'] + 0.5))
-            posdata = posdata[mask]
+        #    x, y = world2pix(ra, dec, posdata)
+        #    x += x_distoff[mask]
+        #    y += y_distoff[mask]
+        #    mask = ((x > 0.5) & (x < posdata['naxis1'] + 0.5) &
+        #            (y > 0.5) & (y < posdata['naxis2'] + 0.5))
+        #    posdata = posdata[mask]
 
         if len(posdata) > 0:
             ngood += 1
@@ -467,10 +537,37 @@ def main():
             if len(fields) > 1:
                 noverlap += 1
 
+
             for i, field in enumerate(fields):
                 fielddata = posdata[posdata['field'] == field]
                 ccds = np.unique(fielddata['ccdnum'])
-                out.write(field_template.format(field, str(ccds)))
+
+                # For this field, find the first (arbitrary) image in each band 
+                # and get its CHIP_ZERO_POINT and CHIP_SKYSIG_TEMPLATE
+                # to be recorded as TEMPLATE_ZPT and TEMPLATE_SKYSIG.
+                #
+                # This is made harder by the fact that some fields don't have
+                # images in every band. So there's not always a "first" band.
+                # 
+                # NOTE:
+                # This is non-robust acrobatics!
+                # This info should just be two more columns in the table.
+                # Can YOU decipher what this is doing? I sure can't.
+                idx = []
+                for band in ['g', 'r', 'i', 'z']:
+                    try:
+                        idx.append(np.flatnonzero(fielddata['band']==band)[0])
+                    except:
+                        idx.append(-1)  # -1 indicates no image in given band
+                zpstr = ["%6.3f" % fielddata['chip_zero_point'][i]
+                         if i != -1 else "0.0" for i in idx]
+                zpstr = " ".join(zpstr)
+                skystr = ["%7.2f" % fielddata['chip_sigsky_template'][i]
+                          if i != -1 else "0.0" for i in idx]
+                skystr = " ".join(skystr)
+
+                out.write(field_template.format(field, str(ccds),
+                                                zpstr, skystr))
                 if i == 0:
                     out.write(head_comment)
 
@@ -483,7 +580,7 @@ def main():
                             str(fielddata['band'][j]),
                             float(fielddata['gain'][j]),
                             0.,
-                            float(fielddata['chip_sigsky'][j]),
+                            float(fielddata['chip_sigsky_search'][j]),
                             float(fielddata['psf_nea'][j]),
                             0.,
                             0.,
