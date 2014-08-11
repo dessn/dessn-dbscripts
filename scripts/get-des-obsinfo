@@ -347,7 +347,8 @@ def main():
         snobsinfo oi, snforce_image fi, snforce f
     WHERE
         oi.image_name_diff = fi.image_name_diff and 
-        fi.image_name_diff = f.image_name_diff
+        fi.image_name_diff = f.image_name_diff and
+        oi.tile = 0
     ORDER BY
         field, oi.ccdnum, oi.nite, oi.band
     """
