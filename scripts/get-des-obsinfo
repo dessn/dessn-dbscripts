@@ -45,7 +45,8 @@ TELESCOPE: CTIO
 SURVEY: DES      FILTERS: griz
 USER: username    HOST: hostname
 COMMENT: 'No comment'
-
+PIXSIZE: 0.27
+PSF_UNIT: ARCSEC_FWHM
 #--------------------------------------------------------------------------
 """
 
@@ -522,7 +523,9 @@ def main():
         #            (y > 0.5) & (y < posdata['naxis2'] + 0.5))
         #    posdata = posdata[mask]
 
-        if len(posdata) > 0:
+        # Only write this out if there are 2 or more images (1 image is not
+        # enough to make a subtraction.
+        if len(posdata) > 1:
             ngood += 1
 
             # Write header and entries for this position to SIMLIB file
