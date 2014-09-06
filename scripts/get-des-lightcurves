@@ -149,6 +149,12 @@ def parse_args():
     parser.add_option("-n", type="int", default=-1,
                       help="maximum number of light curves to get (default "
                       "behaviour is to get all matching light curves)")
+    parser.add_option("--dbname", default='desoper',
+                      help="Database to connnect to: desoper, destest "
+                      "(default: desoper)") 
+    parser.add_option("--candtable", default='sncand',
+                      help="Table to query for candidates: sncand, "
+                      "sncand_legacy (default: sncand)") 
     parser.add_option("--candtype", default=0,
                       help="Get only candidates with this cand_type value, "
                       "or 'all' to disregard cand_type (default: 0)")
@@ -168,10 +174,7 @@ def parse_args():
     parser.add_option("--maxfakeid", default=-1, type="int",
                       help="maximum fake_id (only effective with --fake flag)")
 
-    # Content: which table? optional metadata?
-    parser.add_option("--candtable", default='sncand',
-                      help="Table to query for candidates: sncand, "
-                      "sncand_legacy (default: sncand)") 
+    # Content: which photometry table? optional metadata?
     parser.add_option("-t", "--table", default='snforce',
                       help=("table from which to retrieve photometry: "+
                             ",".join(TABLES) + " (default: snforce)"))
@@ -452,7 +455,7 @@ if __name__ == "__main__":
     user = PasswordGetter().user
 
     # Create a connection to the database.
-    conn = desdb.connect(dbname='desoper')
+    conn = desdb.connect(dbname=opts.dbname)
 
     # Build and run candidate query
     q = build_cand_query(snids, opts)
