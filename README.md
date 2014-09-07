@@ -3,6 +3,15 @@
 Dark Energy Survey (DES) supernova project scripts for downloading data
 from the DES database.
 
+* `get-des-lightcurves`: Query DB for SN photometry and write to file(s).
+
+* `get-des-obsinfo`: Query DB for list of observation metadata at a
+  set of locations and write to file (currently SNANA "SIMLIB"
+  format).
+
+* `get-cand-imageinfo`: Query DB for list of images overlapping a
+  given position or candidate.
+
 ## Installation
 
 The scripts are stand-alone. Copy the scripts to a directory on your
