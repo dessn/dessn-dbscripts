@@ -17,11 +17,10 @@ at least one observation). It is determined statistically, by multiplying the
 total area (entirely enclosing all the SN fields) by the fraction of positions
 that have at least one observation.
 
-Note: There are a few approximations made in using the WCS but
-it should be quite accurate. A bigger approximation is that masking is ignored.
-That is, if a position corresponds to a position anywhere on the image, it is
-considered as being observed in the image, even if it is on a masked pixel.
-This results in overestimation of observations.
+Note that masking is ignored. If a position lies anywhere on the
+image, it is considered as being observed in the image, even if turns
+out to be on a masked pixel.  This results in overestimation of
+observations.
 """
 
 import random
@@ -82,8 +81,8 @@ parser.add_option('--infile', default=None,
                   'written to final SIMLIB file.')
 parser.add_option('-o', '--outfile', default=None,
                   help='name of file to write output to [REQUIRED]')
-parser.add_option('--dbname', default='destest',
-                  help='name of database to connect to [default=destest]')
+parser.add_option('--dbname', default='desoper',
+                  help='name of database to connect to [default=desoper]')
 parser.add_option('-n', type='int', default=100,
                   help='number of entries to generate if infile not given '
                   '(default=100)')
@@ -136,94 +135,6 @@ def get_random_position():
     return ra, dec
 
 
-def pix2world(x, y, wcsdata, pv=False):
-    """Convert from pixel to world coordinates in degrees.
-
-    Only array-wise operations are used, so that x, y and wcsdata can be
-    arrays (as long as they are broadcastable).
-
-    Uses treatment of PV?_? keywords described here:
-    www.cadc-ccda.hia-iha.nrc-cnrc.gc.ca/megapipe/docs/CD_PV_keywords.pdf
-    """
-
-    x_off = x - wcsdata['crpix1']
-    y_off = y - wcsdata['crpix2']
-    xi = wcsdata['cd1_1'] * x_off + wcsdata['cd1_2'] * y_off
-    eta = wcsdata['cd2_1'] * x_off + wcsdata['cd2_2'] * y_off
-
-    if pv:
-        r = np.sqrt(xi**2 + eta**2)
-        xi = (wcsdata['pv1_0'] +
-              wcsdata['pv1_1'] * xi +
-              wcsdata['pv1_2'] * eta +
-              wcsdata['pv1_3'] * r +
-              wcsdata['pv1_4'] * xi**2 +
-              wcsdata['pv1_5'] * xi * eta +
-              wcsdata['pv1_6'] * eta**2 +
-              wcsdata['pv1_7'] * xi**3 +
-              wcsdata['pv1_8'] * xi**2 * eta +
-              wcsdata['pv1_9'] * xi * eta**2 +
-              wcsdata['pv1_10'] * eta**3)
-        eta = (wcsdata['pv2_0'] +
-               wcsdata['pv2_1'] * eta +
-               wcsdata['pv2_2'] * xi +
-               wcsdata['pv2_3'] * r +
-               wcsdata['pv2_4'] * eta**2 +
-               wcsdata['pv2_5'] * eta * xi +
-               wcsdata['pv2_6'] * xi**2 +
-               wcsdata['pv2_7'] * eta**3 +
-               wcsdata['pv2_8'] * eta**2 * xi +
-               wcsdata['pv2_9'] * eta * xi**2 +
-               wcsdata['pv2_10'] * xi**3)
-
-    # Convert values to radians
-    xi_r = (np.pi / 180.) * xi
-    eta_r = (np.pi / 180.) * eta
-    crval1_r = (np.pi / 180.) * wcsdata['crval1']
-    crval2_r = (np.pi / 180.) * wcsdata['crval2']
-
-    denom = 1. - eta_r * np.tan(crval2_r)
-    alpha = np.arctan(xi_r / np.cos(crval2_r) / denom)
-    ra = alpha + crval1_r
-    dec = np.arctan((eta_r + np.tan(crval2_r)) * np.cos(alpha) / denom)
-
-    # Return values in degrees
-    return (180./np.pi) * ra, (180./np.pi) * dec
-
-
-def world2pix(ra, dec, wcsdata):
-    """Convert from RA, Dec to pixel positions.
-
-    No distortion terms are applied, because this cannot be done array-wise.
-    Rather, it requires iteration using the forward solution.
-    """
-
-    ra_r = (np.pi / 180.) * ra
-    dec_r = (np.pi / 180.) * dec
-    crval1_r = (np.pi / 180.) * wcsdata['crval1']
-    crval2_r = (np.pi / 180.) * wcsdata['crval2']
-
-    eta = ((1. - np.tan(crval2_r) * np.cos(ra_r - crval1_r) / np.tan(dec_r)) /
-           (np.tan(crval2_r) + np.cos(ra_r - crval1_r) / np.tan(dec_r)))
-    xi = np.tan(ra_r-crval1_r) * np.cos(crval2_r) * (1. - eta*np.tan(crval2_r))
-
-    # Convert to degrees
-    xi = (180./np.pi) * xi
-    eta = (180./np.pi) * eta
-
-    # Invert cd matrix
-    det = (wcsdata['cd1_1'] * wcsdata['cd2_2'] -
-           wcsdata['cd1_2'] * wcsdata['cd2_1'])
-    dc1_1 = wcsdata['cd2_2'] / det
-    dc1_2 = -wcsdata['cd1_2'] / det
-    dc2_1 = -wcsdata['cd2_1'] / det
-    dc2_2 = wcsdata['cd1_1'] / det
-    
-    x = dc1_1 * xi + dc1_2 * eta + wcsdata['crpix1']
-    y = dc2_1 * xi + dc2_2 * eta + wcsdata['crpix2']
-
-    return x, y
-
 def point_line_side(pointx, pointy, x1, y1, x2, y2):
     """Determine what side of a line a point is on.
 
@@ -233,6 +144,7 @@ def point_line_side(pointx, pointy, x1, y1, x2, y2):
     Returns negative number if point is on the right side.
     """
     return (x2-x1) * (pointy-y1) - (y2-y1) * (pointx-x1)
+
 
 def point_within_quad(pointx, pointy, x1, y1, x2, y2, x3, y3, x4, y4):
     """Determine if an (x, y) point lies within a quadrilateral.
@@ -246,6 +158,7 @@ def point_within_quad(pointx, pointy, x1, y1, x2, y2, x3, y3, x4, y4):
             (point_line_side(pointx, pointy, x3, y3, x4, y4) >= 0.) &
             (point_line_side(pointx, pointy, x4, y4, x1, y1) >= 0.))
 
+
 def main():
 
     options, args = parser.parse_args(sys.argv[1:])
@@ -257,72 +170,7 @@ def main():
     out = open(fname, 'w')
     out.write(master_head_template)
 
-    # Start from the snobsinfo table, connect to the image table to get WCS
-    # info.
     query = """\
-    SELECT DISTINCT
-        substr(e.object, 22, 2) field,
-        oi.ccdnum,
-        oi.nite,
-        oi.band,
-        oi.expnum,
-        oi.run,
-        e.mjd_obs,
-        (oi.chip_ccdgaina + oi.chip_ccdgainb)/2. as gain,
-        oi.chip_sigsky,
-        oi.psf_nea,
-        oi.chip_zero_point,
-        oi.chip_zero_point_rms,
-        i.id as image_id,
-        i.cunit1,
-        i.cunit2,
-        i.ctype1,
-        i.ctype2,
-        i.cd1_1,
-        i.cd1_2,
-        i.cd2_1,
-        i.cd2_2,
-        i.crval1,
-        i.crval2,
-        i.crpix1,
-        i.crpix2,
-        i.pv1_0, i.pv1_1, i.pv1_2, i.pv1_3, i.pv1_4, i.pv1_5,
-        i.pv1_6, i.pv1_7, i.pv1_8, i.pv1_9, i.pv1_10,
-        i.pv2_0, i.pv2_1, i.pv2_2, i.pv2_3, i.pv2_4, i.pv2_5,
-        i.pv2_6, i.pv2_7, i.pv2_8, i.pv2_9, i.pv2_10,
-        i.naxis1,
-        i.naxis2
-    FROM
-        snobsinfo oi, exposure e, image i
-    WHERE
-        oi.expnum=e.expnum AND
-        oi.tile=0 AND           /* only coadds */
-        oi.run = i.run AND      /* match to unique image table entry */
-        oi.band = i.band AND    /* ...                               */
-        oi.ccdnum = i.ccd AND   /* ...                               */
-        (
-          /* coadd image if deep field or z band */
-          (
-            i.imagetype='diff_nitecmb_diff' and
-            (substr(e.object, 22, 2) in ('C3','X3') or
-             (substr(e.object, 22, 2) in ('C1','C2','E1','E2',
-                                          'S1','S2','X1','X2') and oi.band='z')
-            )
-          )
-          or
-          /* single image if shallow field and gri band */
-          (
-            i.imagetype='diff_single_diff' and
-            substr(e.object, 22, 2) in ('C1','C2','E1','E2',
-                                        'S1','S2','X1','X2') and
-            oi.band in ('g', 'r', 'i')
-          )
-        )
-    ORDER BY
-        field, oi.ccdnum, oi.nite, oi.band, oi.run
-    """
-
-    newquery = """\
     SELECT DISTINCT
         oi.ccdnum,
         oi.nite,
@@ -361,7 +209,7 @@ def main():
     else:
         print "Querying database (this may take a minute or two)..."
         t0 = time.time()
-        data = conn.quick(newquery, array=True)
+        data = conn.quick(query, array=True)
         print "Query took {0:.2f} seconds, {1:.2f} MB array.".format(
             time.time() - t0, data.nbytes / 1.e6)
         if options.cache:
@@ -371,18 +219,8 @@ def main():
     print msg
     out.write('#{0}\n'.format(msg))
 
-    # Get just the latest processing run for each exposure/ccd.
-    # This counts on the data being ordered by exposureid, ccd, run.
-    #indicies_to_use = []
-    #for i in range(1, len(data)):
-    #    if not (data['expnum'][i] == data['expnum'][i-1] and
-    #            data['ccdnum'][i] == data['ccdnum'][i-1]):
-    #        indicies_to_use.append(i-1)
-    #indicies_to_use.append(len(data)-1)
-    #data = data[indicies_to_use]
-    #msg = "HACK: {0:d} records after trimming duplicate runs".format(len(data))
-    #print msg
-    #out.write('#{0}\n'.format(msg))
+    #-------------------------------------------------------------------------
+    # BEGIN HACKS
 
     # Hack to remove dirty data from the table:
     # This is necessary because there were some -9's written to the database.
@@ -401,44 +239,8 @@ def main():
     print msg
     out.write('#{0}\n'.format(msg))
 
-    # Hack to cut entries with zp=99.99
-    # Such entries exist in the DB due to either
-    # (1) a bug (that was later fixed) in doFake
-    # (2) representation of "no data" in cases where the conditions are
-    #     so poor that a zp could not be determined.
-    # It is unclear which is the case at the time of this writing.
-    mask = np.abs(data['chip_zero_point'] - 99.99) > 0.001
-    data = data[mask]
-    msg = ("HACK: {0:d} records after trimming entries with "
-           "CHIP_ZERO_POINT = 99.99".format(len(data)))
-    print msg
-    out.write('#{0}\n'.format(msg))
-
-    # Get extent of each image in RA, Dec by finding RA, Dec of image corners.
-    #X = np.empty((4, len(data)))
-    #Y = np.empty((4, len(data)))
-    #X[0, :] = 0.5
-    #Y[0, :] = 0.5
-    #X[1, :] = data['naxis1'] + 0.5
-    #Y[1, :] = 0.5
-    #X[2, :] = 0.5
-    #Y[2, :] = data['naxis2'] + 0.5
-    #X[3, :] = data['naxis1'] + 0.5
-    #Y[3, :] = data['naxis2'] + 0.5
-    #ra_corners, dec_corners = pix2world(X, Y, data, pv=True)
-    #ra_min = np.min(ra_corners, axis=0)
-    #ra_max = np.max(ra_corners, axis=0)
-    #dec_min = np.min(dec_corners, axis=0)
-    #dec_max = np.max(dec_corners, axis=0)
-
-    # Find offset between fully correct solution and approximation
-    # at the center of each image.
-    #x_ctr = (data['naxis1'] + 1.) / 2.
-    #y_ctr = (data['naxis2'] + 1.) / 2.
-    #ra_ctr, dec_ctr = pix2world(x_ctr, y_ctr, data, pv=True)
-    #x_approx, y_approx = world2pix(ra_ctr, dec_ctr, data)
-    #x_distoff = x_ctr - x_approx  # offset due to distortion
-    #y_distoff = y_ctr - y_approx  # offset due to distortion
+    # END HACKS
+    # ------------------------------------------------------------------------
 
     # If input file is defined, read positions.
     if options.infile is not None:
@@ -503,28 +305,10 @@ def main():
                                  data['rac2'], data['decc2'],
                                  data['rac3'], data['decc3'],
                                  data['rac4'], data['decc4'])
-
-        #i = 0
-        #for corner in ['1', '2', '3', '4']:
-        #    print corner, data['rac'+corner][i], data['decc'+corner][i]
-        #exit()
         posdata = data[mask]
 
-        # which images might the position *possibly* overlap?
-        #mask = ((ra > ra_min) & (ra < ra_max) &
-        #        (dec > dec_min) & (dec < dec_max))
-        #posdata = data[mask]
-        #if len(posdata) > 0:
-            # Which images *actually* overlap the position?
-        #    x, y = world2pix(ra, dec, posdata)
-        #    x += x_distoff[mask]
-        #    y += y_distoff[mask]
-        #    mask = ((x > 0.5) & (x < posdata['naxis1'] + 0.5) &
-        #            (y > 0.5) & (y < posdata['naxis2'] + 0.5))
-        #    posdata = posdata[mask]
-
         # Only write this out if there are 2 or more images (1 image is not
-        # enough to make a subtraction.
+        # enough to make a subtraction).
         if len(posdata) > 1:
             ngood += 1
 
