@@ -22,54 +22,25 @@ cache_filename_diff = 'des-imageinfo-cache-diff.npy'
 cache_filename_search = 'des-imageinfo-cache-search.npy'
 
 image_query_template = """
-SELECT DISTINCT
-    e.id as exposureid,
-    e.expnum,
-    substr(e.object, 22, 2) field,
-    e.mjd_obs,
-    i.id,
-    i.imagename,
-    i.imagetype,
-    i.ccd,
-    i.run,
-    i.band,
-    i.cunit1,
-    i.cunit2,
-    i.ctype1,
-    i.ctype2,
-    i.cd1_1,
-    i.cd1_2,
-    i.cd2_1,
-    i.cd2_2,
-    i.crval1,
-    i.crval2,
-    i.crpix1,
-    i.crpix2,
-    i.pv1_0, i.pv1_1, i.pv1_2, i.pv1_3, i.pv1_4, i.pv1_5,
-    i.pv1_6, i.pv1_7, i.pv1_8, i.pv1_9, i.pv1_10,
-    i.pv2_0, i.pv2_1, i.pv2_2, i.pv2_3, i.pv2_4, i.pv2_5,
-    i.pv2_6, i.pv2_7, i.pv2_8, i.pv2_9, i.pv2_10,
-    i.naxis1,
-    i.naxis2
+SELECT
+    filename,
+    filetype,
+    band,
+    ccdnum,
+    nite,
+    expnum,
+    field,
+    rac1, decc1,
+    rac2, decc2,
+    rac3, decc3,
+    rac4, decc4
 FROM
-    image i,
-    exposure e,
-    run r,
-    run_data_state s
+    image
 WHERE
-    e.object like 'DES supernova hex %' AND
-    i.exposureid = e.id AND
-    i.ccd != 61 AND
-    r.run = i.run AND
-    s.run = i.run AND
-    r.status = 0 AND       /* only good runs */
-    s.state != 'JUNK' AND  /* only good runs */
-    r.project = 'OPS' AND  /* TODO: not sure if this is necessary? */
+    ccdnum != 61 AND
     {0}
 ORDER BY
-    e.expnum,
-    i.ccd,
-    i.run
+    expnum
 """
 
 
@@ -78,14 +49,17 @@ def parse_args():
                         '       %prog [options] SNID [SNID ...]\n'
                         '       %prog [options] RA,DEC [RA,DEC ...]',
                         description=__doc__)
-    parser.add_option('--diff', default=False, action="store_true",
-                      help="Nightly difference images "
-                      "rather than reduced ('red') images.")
-    parser.add_option('--search', default=False, action="store_true",
-                      help="Nightly search images: the "
-                      "combined image for deep fields griz and shallow field "
-                      "z-band, and the single image for shallow field "
-                      "gri-band rather than reduced ('red') images.")
+    parser.add_option('--dbname', default='desoper',
+                      help="Database name to connect to: desoper, destest "
+                      "[default: desoper]")
+    #parser.add_option('--diff', default=False, action="store_true",
+    #                  help="Nightly difference images "
+    #                  "rather than reduced ('red') images.")
+    #parser.add_option('--search', default=False, action="store_true",
+    #                  help="Nightly search images: the "
+    #                  "combined image for deep fields griz and shallow field "
+    #                  "z-band, and the single image for shallow field "
+    #                  "gri-band rather than reduced ('red') images.")
     parser.add_option('-o', '--outfile', default='{snid}.csv',
                       help="Format of filename to write output. Must "
                       "contain '{snid}' which will be replaced by the SNID "
@@ -95,12 +69,36 @@ def parse_args():
                       "des-imageinfo-cache[-diff,-search].npy "
                       "depending on --diff  and --search flags.")
     opts, args = parser.parse_args(sys.argv[1:])
-    if opts.diff and opts.search:
-        print "Conflicting options: --diff and --search"
-        exit()
+    #if opts.diff and opts.search:
+    #    print "Conflicting options: --diff and --search"
+    #    exit()
     snids = args
 
     return opts, snids
+
+
+def point_line_side(pointx, pointy, x1, y1, x2, y2):
+    """Determine what side of a line a point is on.
+
+    Returns positive number if point is on left side of the line from
+    (x1,y1) to (x2,y2).
+    Returns 0 if point is on the line.
+    Returns negative number if point is on the right side.
+    """
+    return (x2-x1) * (pointy-y1) - (y2-y1) * (pointx-x1)
+
+
+def point_within_quad(pointx, pointy, x1, y1, x2, y2, x3, y3, x4, y4):
+    """Determine if an (x, y) point lies within a quadrilateral.
+
+    (x1, y1) is the first corner of the quadrilateral, (x2,y2) is the adjacent
+    corner proceeding counterclockwise (CCW), etc. Note that the direction
+    is significant.
+    """
+    return ((point_line_side(pointx, pointy, x1, y1, x2, y2) >= 0.) &
+            (point_line_side(pointx, pointy, x2, y2, x3, y3) >= 0.) &
+            (point_line_side(pointx, pointy, x3, y3, x4, y4) >= 0.) &
+            (point_line_side(pointx, pointy, x4, y4, x1, y1) >= 0.))
 
 
 def build_radec_query(snid):
@@ -113,185 +111,75 @@ def build_radec_query(snid):
         snid = {:d}
     """.format(snid)
 
-# Old method for querying, based on the ccd center being "near" the position.
-#    boxrad = (2048. * 0.27) / 3600.  # half of ccd length in degrees
-#    dra = boxrad + math.cos(dec * math.pi/180.)
-#    ddec = boxrad
-
+# I think this is the right filetype, but not sure.
 def build_red_image_query():
-    # We select SNe Single epoch pipeline from Y1 or any image from SV
-    # (mjd 56474 = July 1, 2013)
-
-    return image_query_template.format(
-        "(r.pipeline = 'snese' OR e.mjd_obs < 56474) AND i.imagetype = 'red'")
+    return image_query_template.format("filetype = 'snxtalked_sci'")
 
 
-def build_diff_image_query():
-    condition = """
-    (
-      /* coadd image if deep field or z band */
-      (i.imagetype='diff_nitecmb_diff'
-       and
-       (substr(e.object,22,2) in ('C3','X3') or i.band='z'))
-
-      or
-
-      /* single image if shallow field and gri band */
-      (i.imagetype='diff_single_diff'
-       and
-       substr(e.object,22,2) in ('C1','C2','E1','E2','S1','S2','X1','X2')
-       and
-       i.band in ('g', 'r', 'i'))
-    )
-    AND
-    i.imagename like '%_diff_%'  /* eliminate _temp_ images */
-
-    """
-    return image_query_template.format(condition)
-
-def build_search_image_query():
-    condition = """
-    (
-      /* coadd image if deep field or z band */
-      (i.imagetype='diff_nitecmb_search'
-       and
-       (substr(e.object,22,2) in ('C3','X3') or i.band='z'))
-
-      or
-
-      /* single image if shallow field and gri band */
-      (i.imagetype='diff_single_search'
-       and
-       substr(e.object,22,2) in ('C1','C2','E1','E2','S1','S2','X1','X2')
-       and
-       i.band in ('g', 'r', 'i'))
-    )
-    AND
-    i.imagename not like '%_temp_%'  /* eliminate _temp_ images */
-
-    """
-    return image_query_template.format(condition)
+#def build_diff_image_query():
+#    condition = """
+#    (
+#      /* coadd image if deep field or z band */
+#      (i.imagetype='diff_nitecmb_diff'
+#       and
+#       (substr(e.object,22,2) in ('C3','X3') or i.band='z'))
+#
+#      or
+#
+#      /* single image if shallow field and gri band */
+#      (i.imagetype='diff_single_diff'
+#       and
+#       substr(e.object,22,2) in ('C1','C2','E1','E2','S1','S2','X1','X2')
+#       and
+#       i.band in ('g', 'r', 'i'))
+#    )
+#    AND
+#    i.imagename like '%_diff_%'  /* eliminate _temp_ images */
+#
+#    """
+#    return image_query_template.format(condition)
 
 
+#def build_search_image_query():
+#    condition = """
+#    (
+#      /* coadd image if deep field or z band */
+#      (i.imagetype='diff_nitecmb_search'
+#       and
+#       (substr(e.object,22,2) in ('C3','X3') or i.band='z'))
+#
+#      or
+#
+#      /* single image if shallow field and gri band */
+#      (i.imagetype='diff_single_search'
+#       and
+#       substr(e.object,22,2) in ('C1','C2','E1','E2','S1','S2','X1','X2')
+#       and
+#       i.band in ('g', 'r', 'i'))
+#    )
+#    AND
+#    i.imagename not like '%_temp_%'  /* eliminate _temp_ images */
+#
+#    """
+#    return image_query_template.format(condition)
 
-def pix2world(x, y, wcsdata, pv=False):
-    """Convert from pixel to world coordinates in degrees.
-
-    Only array-wise operations are used, so that x, y and wcsdata can be
-    arrays (as long as they are broadcastable).
-
-    Uses treatment of PV?_? keywords described here:
-    www.cadc-ccda.hia-iha.nrc-cnrc.gc.ca/megapipe/docs/CD_PV_keywords.pdf
-    """
-
-    x_off = x - wcsdata['crpix1']
-    y_off = y - wcsdata['crpix2']
-    xi = wcsdata['cd1_1'] * x_off + wcsdata['cd1_2'] * y_off
-    eta = wcsdata['cd2_1'] * x_off + wcsdata['cd2_2'] * y_off
-
-    if pv:
-        r = np.sqrt(xi**2 + eta**2)
-        xi = (wcsdata['pv1_0'] +
-              wcsdata['pv1_1'] * xi +
-              wcsdata['pv1_2'] * eta +
-              wcsdata['pv1_3'] * r +
-              wcsdata['pv1_4'] * xi**2 +
-              wcsdata['pv1_5'] * xi * eta +
-              wcsdata['pv1_6'] * eta**2 +
-              wcsdata['pv1_7'] * xi**3 +
-              wcsdata['pv1_8'] * xi**2 * eta +
-              wcsdata['pv1_9'] * xi * eta**2 +
-              wcsdata['pv1_10'] * eta**3)
-        eta = (wcsdata['pv2_0'] +
-               wcsdata['pv2_1'] * eta +
-               wcsdata['pv2_2'] * xi +
-               wcsdata['pv2_3'] * r +
-               wcsdata['pv2_4'] * eta**2 +
-               wcsdata['pv2_5'] * eta * xi +
-               wcsdata['pv2_6'] * xi**2 +
-               wcsdata['pv2_7'] * eta**3 +
-               wcsdata['pv2_8'] * eta**2 * xi +
-               wcsdata['pv2_9'] * eta * xi**2 +
-               wcsdata['pv2_10'] * xi**3)
-
-    # Convert values to radians
-    xi_r = (np.pi / 180.) * xi
-    eta_r = (np.pi / 180.) * eta
-    crval1_r = (np.pi / 180.) * wcsdata['crval1']
-    crval2_r = (np.pi / 180.) * wcsdata['crval2']
-
-    denom = 1. - eta_r * np.tan(crval2_r)
-    alpha = np.arctan(xi_r / np.cos(crval2_r) / denom)
-    ra = alpha + crval1_r
-    dec = np.arctan((eta_r + np.tan(crval2_r)) * np.cos(alpha) / denom)
-
-    # Return values in degrees
-    return (180./np.pi) * ra, (180./np.pi) * dec
-
-
-def world2pix(ra, dec, wcsdata, pv_approx=False):
-    """Convert from RA, Dec to pixel positions.
-
-    No distortion terms are applied, because this cannot be done array-wise.
-    Rather, it requires iteration using the forward solution.
-    """
-
-    ra_r = (np.pi / 180.) * ra
-    dec_r = (np.pi / 180.) * dec
-    crval1_r = (np.pi / 180.) * wcsdata['crval1']
-    crval2_r = (np.pi / 180.) * wcsdata['crval2']
-
-    eta = ((1. - np.tan(crval2_r) * np.cos(ra_r - crval1_r) / np.tan(dec_r)) /
-           (np.tan(crval2_r) + np.cos(ra_r - crval1_r) / np.tan(dec_r)))
-    xi = np.tan(ra_r-crval1_r) * np.cos(crval2_r) * (1. - eta*np.tan(crval2_r))
-
-    # Convert to degrees
-    xi = (180./np.pi) * xi
-    eta = (180./np.pi) * eta
-
-    # Invert cd matrix
-    det = (wcsdata['cd1_1'] * wcsdata['cd2_2'] -
-           wcsdata['cd1_2'] * wcsdata['cd2_1'])
-    dc1_1 = wcsdata['cd2_2'] / det
-    dc1_2 = -wcsdata['cd1_2'] / det
-    dc2_1 = -wcsdata['cd2_1'] / det
-    dc2_2 = wcsdata['cd1_1'] / det
-    
-    x = dc1_1 * xi + dc1_2 * eta + wcsdata['crpix1']
-    y = dc2_1 * xi + dc2_2 * eta + wcsdata['crpix2']
-
-    if pv_approx:
-        # Correct for one iteration of distortion correction:
-        # Find the difference in x,y  when we do the forward dist. correction
-        ra2, dec2 = pix2world(x, y, wcsdata, pv=True)
-        x2, y2 = world2pix(ra2, dec2, wcsdata, pv_approx=False)
-
-        # x2, y2 is off from x, y by the correction
-        x_corr = x - x2
-        y_corr = y - y2
-        
-        # Correct
-        x = x + x_corr
-        y = y + y_corr
-
-    return x, y
 
 # Main --------------------------------------------------------------------- #
 if __name__ == '__main__':
 
     # Get arguments
     opts, snids = parse_args()
-    conn = desdb.connect(dbname='desoper')
+    conn = desdb.connect(dbname=opts.dbname)
 
-    if opts.diff:
-        cachename = cache_filename_diff
-        q = build_diff_image_query()
-    elif opts.search:
-        cachename = cache_filename_search
-        q = build_search_image_query()
-    else:
-        cachename = cache_filename
-        q = build_red_image_query()
+    #if opts.diff:
+    #    cachename = cache_filename_diff
+    #    q = build_diff_image_query()
+    #elif opts.search:
+    #    cachename = cache_filename_search
+    #    q = build_search_image_query()
+    #else:
+    cachename = cache_filename
+    q = build_red_image_query()
 
     # see if user defined custom cache file location
     if opts.cachefile is not None:
@@ -314,16 +202,10 @@ if __name__ == '__main__':
 
     print "{0:d} total images from SN fields.".format(len(data))
 
-    # Get just the latest processing run for each exposure/ccd.
-    # This counts on the data being ordered by exposureid, ccd, run.
-    indicies_to_use = []
-    for i in range(1, len(data)):
-        if not (data['expnum'][i] == data['expnum'][i-1] and
-                data['ccd'][i] == data['ccd'][i-1]):
-            indicies_to_use.append(i-1)
-    indicies_to_use.append(len(data)-1)
-    data = data[indicies_to_use]
-    print "{0:d} images after removing re-runs.".format(len(data))
+    print data['rac3'].min(), data['rac3'].max()
+    print data['decc3'].min(), data['decc3'].max()
+    print data['rac4'].min(), data['rac4'].max()
+    print data['decc4'].min(), data['decc4'].max()
 
     for j, snid in enumerate(snids):
 
@@ -343,27 +225,28 @@ if __name__ == '__main__':
         print "SNID {0:8d}: ra={1:9.6f} dec={2:9.6f}".format(snid, ra, dec)
 
         # Which images overlap the position?
-        x, y = world2pix(ra, dec, data, pv_approx=True)
-        mask = ((x > 0.5) & (x < data['naxis1'] + 0.5) &
-                (y > 0.5) & (y < data['naxis2'] + 0.5))
+        mask = point_within_quad(ra, dec,
+                                 data['rac1'], data['decc1'],
+                                 data['rac2'], data['decc2'],
+                                 data['rac3'], data['decc3'],
+                                 data['rac4'], data['decc4'])
         posdata = data[mask]
         print (15*" " +
                "{0:d} images / {1:d} unique exposures / {2:d} unique ccds"
                .format(len(posdata), len(np.unique(posdata['expnum'])),
-                       len(np.unique(posdata['ccd']))))
+                       len(np.unique(posdata['ccdnum']))))
 
         # Save to file:
         fname = opts.outfile.replace('{snid}', str(snid))
         fname = fname.replace('{SNID}', str(snid))
         with open(fname, 'w') as f:
-            f.write('field,band,expnum,ccd,latestrun,imagetype,imagename\n')
+            f.write('field,band,expnum,ccdnum,imagetype,imagename\n')
             for i in range(len(posdata)):
-                f.write('{0:s},{1:s},{2:d},{3:d},{4:s},{5:s},{6:s}\n'
+                f.write('{0:s},{1:s},{2:d},{3:d},{4:s},{5:s}\n'
                         .format(posdata['field'][i],
                                 posdata['band'][i],
                                 posdata['expnum'][i],
-                                posdata['ccd'][i],
-                                posdata['run'][i],
-                                posdata['imagetype'][i],
-                                posdata['imagename'][i]))
+                                posdata['ccdnum'][i],
+                                posdata['filetype'][i],
+                                posdata['filename'][i]))
         print 15*" " + "Wrote image info:", fname
