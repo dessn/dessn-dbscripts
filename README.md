@@ -1,4 +1,4 @@
-# des-sn-dbscripts
+# dessn-dbscripts
 
 Dark Energy Survey (DES) supernova project scripts for downloading data
 from the DES database.

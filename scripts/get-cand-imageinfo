@@ -38,6 +38,7 @@ FROM
     image
 WHERE
     ccdnum != 61 AND
+    filetype = 'snred' AND
     {0}
 ORDER BY
     expnum
@@ -52,14 +53,14 @@ def parse_args():
     parser.add_option('--dbname', default='desoper',
                       help="Database name to connect to: desoper, destest "
                       "[default: desoper]")
-    #parser.add_option('--diff', default=False, action="store_true",
-    #                  help="Nightly difference images "
-    #                  "rather than reduced ('red') images.")
-    #parser.add_option('--search', default=False, action="store_true",
-    #                  help="Nightly search images: the "
-    #                  "combined image for deep fields griz and shallow field "
-    #                  "z-band, and the single image for shallow field "
-    #                  "gri-band rather than reduced ('red') images.")
+    parser.add_option('--diff', default=False, action="store_true",
+                      help="Nightly difference images "
+                      "rather than reduced ('red') images.")
+    parser.add_option('--search', default=False, action="store_true",
+                      help="Nightly search images: the "
+                      "combined image for deep fields griz and shallow field "
+                      "z-band, and the single image for shallow field "
+                      "gri-band rather than reduced ('red') images.")
     parser.add_option('-o', '--outfile', default='{snid}.csv',
                       help="Format of filename to write output. Must "
                       "contain '{snid}' which will be replaced by the SNID "
@@ -69,9 +70,9 @@ def parse_args():
                       "des-imageinfo-cache[-diff,-search].npy "
                       "depending on --diff  and --search flags.")
     opts, args = parser.parse_args(sys.argv[1:])
-    #if opts.diff and opts.search:
-    #    print "Conflicting options: --diff and --search"
-    #    exit()
+    if opts.diff and opts.search:
+        print "Conflicting options: --diff and --search"
+        exit()
     snids = args
 
     return opts, snids
@@ -111,57 +112,52 @@ def build_radec_query(snid):
         snid = {:d}
     """.format(snid)
 
-# I think this is the right filetype, but not sure.
+
 def build_red_image_query():
-    return image_query_template.format("filetype = 'snxtalked_sci'")
+    return image_query_template.format("filename like '%_wcs.fits'")
 
 
-#def build_diff_image_query():
-#    condition = """
-#    (
-#      /* coadd image if deep field or z band */
-#      (i.imagetype='diff_nitecmb_diff'
-#       and
-#       (substr(e.object,22,2) in ('C3','X3') or i.band='z'))
-#
-#      or
-#
-#      /* single image if shallow field and gri band */
-#      (i.imagetype='diff_single_diff'
-#       and
-#       substr(e.object,22,2) in ('C1','C2','E1','E2','S1','S2','X1','X2')
-#       and
-#       i.band in ('g', 'r', 'i'))
-#    )
-#    AND
-#    i.imagename like '%_diff_%'  /* eliminate _temp_ images */
-#
-#    """
-#    return image_query_template.format(condition)
+def build_diff_image_query():
+    condition = """
+    (
+      /* coadd image if deep field or z band */
+      (filename like '%_combined_%_fakeSN_diff_mh.fits'
+       AND
+       (field in ('SN-C3','SN-X3') or band='z'))
 
+      OR
 
-#def build_search_image_query():
-#    condition = """
-#    (
-#      /* coadd image if deep field or z band */
-#      (i.imagetype='diff_nitecmb_search'
-#       and
-#       (substr(e.object,22,2) in ('C3','X3') or i.band='z'))
-#
-#      or
-#
-#      /* single image if shallow field and gri band */
-#      (i.imagetype='diff_single_search'
-#       and
-#       substr(e.object,22,2) in ('C1','C2','E1','E2','S1','S2','X1','X2')
-#       and
-#       i.band in ('g', 'r', 'i'))
-#    )
-#    AND
-#    i.imagename not like '%_temp_%'  /* eliminate _temp_ images */
-#
-#    """
-#    return image_query_template.format(condition)
+      /* single image if shallow field and gri band */
+      (filename like '%_fakeSN_diff_mh.fits'
+       AND
+       field in ('SN-C1','SN-C2','SN-E1','SN-E2','SN-S1','SN-S2','SN-X1',
+                 'SN-X2')
+       AND
+       band in ('g', 'r', 'i'))
+    )
+    """
+    return image_query_template.format(condition)
+
+def build_search_image_query():
+    condition = """
+    (
+      /* coadd image if deep field or z band */
+      (filename like '%_combined_%_fakeSN_mh.fits'
+       AND
+       (field in ('SN-C3','SN-X3') or band='z'))
+
+      OR
+
+      /* single image if shallow field and gri band */
+      (filename like '%_fakeSN_mh.fits'
+       AND
+       field in ('SN-C1','SN-C2','SN-E1','SN-E2','SN-S1','SN-S2','SN-X1',
+                 'SN-X2')
+       AND
+       band in ('g', 'r', 'i'))
+    )
+    """
+    return image_query_template.format(condition)
 
 
 # Main --------------------------------------------------------------------- #
@@ -171,15 +167,15 @@ if __name__ == '__main__':
     opts, snids = parse_args()
     conn = desdb.connect(dbname=opts.dbname)
 
-    #if opts.diff:
-    #    cachename = cache_filename_diff
-    #    q = build_diff_image_query()
-    #elif opts.search:
-    #    cachename = cache_filename_search
-    #    q = build_search_image_query()
-    #else:
-    cachename = cache_filename
-    q = build_red_image_query()
+    if opts.diff:
+        cachename = cache_filename_diff
+        q = build_diff_image_query()
+    elif opts.search:
+        cachename = cache_filename_search
+        q = build_search_image_query()
+    else:
+        cachename = cache_filename
+        q = build_red_image_query()
 
     # see if user defined custom cache file location
     if opts.cachefile is not None:
