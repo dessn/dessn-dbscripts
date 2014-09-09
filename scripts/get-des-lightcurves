@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """Get light curves of supernova candidates from DES database.
 
-If no SNIDs are given, all candidates with num_real >= 2 in the SNCAND
+If no SNIDs are given, all candidates with numepochs_ml >= 2 in the SNCAND
 table are retrieved. Otherwise, only candidates with the given SNIDs
 are retrieved (regardless of whether they have been scanned).
 
@@ -79,6 +79,7 @@ def write_single_ascii(fname, data, meta, **kwargs):
             f.write(delim.join([str(data[key][i]) for key in keys]))
             f.write('\n')
 
+
 def write_single_json(fname, data, meta):
     """Write a single light curve to a JSON-format file"""
 
@@ -89,6 +90,7 @@ def write_single_json(fname, data, meta):
 
     with open(fname, 'wb') as f:
         json.dump(output, f, encoding=sys.getdefaultencoding())
+
 
 def write_multiple_fits(meta_list, data_list, fname, header=None):
     """Write multiple light curves to a two-extension FITS file.
@@ -138,6 +140,7 @@ def write_multiple_fits(meta_list, data_list, fname, header=None):
     f.write(alldata)
     f[0].write_keys(header)  # write global header
     f.close()
+
 
 # Argument parser ========================================================== #
 def parse_args():
@@ -246,6 +249,7 @@ def parse_args():
 
     return snids, opts
 
+
 # Query string builders ==================================================== #
 def build_cand_query(snids, opts):
 
@@ -256,7 +260,7 @@ def build_cand_query(snids, opts):
             SELECT
                 c.snid, c.transient_id, c.transient_name, c.ra, c.dec,
                 c.cand_type, c.cand_desc, c.numepochs,
-                c.numobs, c.num_real, c.num_artifact, c.num_unsure,
+                c.numobs, c.numepochs_ml, c.num_artifact, c.num_unsure,
                 c.num_unscanned, c.entry_date, c.snfake_id as fake_id
             FROM
                 {0} c
@@ -264,7 +268,7 @@ def build_cand_query(snids, opts):
                 c.snfake_id=0
             """.format(opts.candtable))
         if len(snids) == 0:
-            q += "    AND c.num_real >= 2\n"
+            q += "    AND c.numepochs_ml >= 2\n"
 
     # Query for fake candidates:
     else:
@@ -273,7 +277,7 @@ def build_cand_query(snids, opts):
             SELECT
                 c.snid, c.transient_id, c.transient_name, c.ra, c.dec,
                 c.cand_type, c.cand_desc, c.numepochs,
-                c.numobs, c.num_real, c.num_artifact, c.num_unsure,
+                c.numobs, c.numepochs_ml, c.num_artifact, c.num_unsure,
                 c.num_unscanned, c.entry_date, c.snfake_id as fake_id,
                 f.galid as fake_galid, f.z as fake_z,
                 f.peakmjd as fake_peakmjd, f.host_angsep as fake_hostsep,
