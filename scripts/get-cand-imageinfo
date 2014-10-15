@@ -198,11 +198,6 @@ if __name__ == '__main__':
 
     print "{0:d} total images from SN fields.".format(len(data))
 
-    print data['rac3'].min(), data['rac3'].max()
-    print data['decc3'].min(), data['decc3'].max()
-    print data['rac4'].min(), data['rac4'].max()
-    print data['decc4'].min(), data['decc4'].max()
-
     for j, snid in enumerate(snids):
 
         # Check if this snid is actually a position.
@@ -217,6 +212,10 @@ if __name__ == '__main__':
             snid = int(snid)
             q = build_radec_query(snid)
             pos = conn.quick(q)
+            
+            if len(pos) == 0:
+                raise RuntimeError("No candidate found matching SNID={:d}. "
+                                   "Full query:\n".format(snid) + q)
             ra, dec = pos[0]['ra'], pos[0]['dec']
         print "SNID {0:8d}: ra={1:9.6f} dec={2:9.6f}".format(snid, ra, dec)
 
