@@ -39,7 +39,7 @@ try:
 except ImportError:
     from desdb import PasswordGetter  # old location in desdb
 
-TABLES = ['snforce', 'snobs']
+TABLES = ['snforce', 'snobs', 'snphotms']
 FORMATS = ['ascii', 'json', 'fits']
 SUFFIXES = {'ascii': 'dat', 'json': 'json'}  # Single LC formats
 SNOBS_BOXRAD = 1.08 / 3600.  # in degrees
@@ -212,6 +212,10 @@ def parse_args():
             snids = f.read().split()
     else:
         snids = args
+
+    if opts.table == 'snphotms' and not (opts.candtable == 'sncand_legacy' and opts.dbname == 'destest'):
+        print "snphotms is only compatible with the candtable sncand_legacy and the dbname destest."
+        sys.exit(1)
     
     if opts.candtable not in ["sncand", "sncand_legacy"]:
         print "candtable must be one of: sncand, sncand_legacy"
