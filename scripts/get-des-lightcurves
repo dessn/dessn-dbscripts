@@ -388,6 +388,57 @@ def build_snforce_query(snid, fake_id):
 
     return fullq_template.format(addfields, q, addjoin)
 
+def build_snphotms_query(snid, fake_id):
+
+    q = """
+        SELECT
+            field, ccdnum, band, mjd_obs, counts, countserr, expnum
+        FROM
+            snphotms@destest
+        WHERE
+            sncand_id = {0:d}
+        ORDER BY
+            expnum
+        """.format(snid)
+
+    # Get more information from the snobsinfo and snquality
+    # tables.  This has to be implemented as a sub-query
+    # because we need to `left outer join` to the snobsinfo
+    # table based on *both* expnum and ccdnum and these values
+    # come from two different tables.
+    fullq_template = """
+        SELECT
+            ph.*,
+            oi.psf_nea,
+            oi.chip_sigsky,
+            oi.chip_zero_point,
+            oi.chip_zero_point_rms,
+            nvl(q.snqual, 0) as snqual{0}
+        FROM
+            ({1}) ph
+            LEFT OUTER JOIN snobsinfo oi
+                ON oi.expnum = ph.expnum
+                AND oi.tile = 0
+                AND oi.ccdnum = ph.ccdnum
+                AND oi.band = ph.band
+            LEFT OUTER JOIN snquality q
+                ON ph.expnum = q.expnum{2}
+        ORDER BY
+            ph.expnum
+        """
+
+    # If we're doing fakes, tack on some more info from FAKEIMG
+    addfields = ""
+    addjoin = ""
+    if fake_id != 0:
+        addfields = ", fi.truemag as fake_truemag"
+        addjoin = """
+            LEFT OUTER JOIN snfakeimg fi
+                ON fi.expnum = ph.expnum
+                AND fi.snfake_id = {0:d}""".format(fake_id)
+
+    return fullq_template.format(addfields, q, addjoin)
+
 
 def build_snobs_query(ra, dec):
 
