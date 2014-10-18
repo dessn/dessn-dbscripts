@@ -566,6 +566,8 @@ if __name__ == "__main__":
             q = build_snforce_query(cand['snid'], cand['fake_id'])
         elif opts.table == 'snobs':
             q = build_snobs_query(cand['ra'], cand['dec'])
+        elif opts.table == 'snphotms':
+            q = build_snphotms_query(cand['snid'], cand['fake_id'])
         if opts.verbose:
             print '\n', 78 * '-', '\n', dedent(q)
         data = conn.quick(q, array=True)
