@@ -392,7 +392,7 @@ def build_snphotms_query(snid, fake_id):
 
     q = """
         SELECT
-            field, ccdnum, band, mjd_obs, counts, countserr, expnum
+            field, ccdnum, band, mjd_obs, counts, countserr, expnum, zp
         FROM
             snphotms@destest
         WHERE
