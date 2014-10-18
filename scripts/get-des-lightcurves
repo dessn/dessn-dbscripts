@@ -531,6 +531,9 @@ if __name__ == "__main__":
         if opts.fake:
             photkeys.append('fake_truemag')
 
+    if opts.table == 'snphotms':
+        photkeys.remove('status')
+
     # FITS format: initialize containers to hold candidate data as we go.
     if opts.format == 'fits':
         meta_list = []
