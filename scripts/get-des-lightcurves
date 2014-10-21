@@ -1,4 +1,4 @@
-0;95;c#!/usr/bin/env python
+#!/usr/bin/env python
 """Get light curves of supernova candidates from DES database.
 
 If no SNIDs are given, all candidates with numepochs_ml >= 2 in the SNCAND
@@ -521,7 +521,7 @@ if __name__ == "__main__":
     # specify order of keys in photometry tables
     photkeys = ['time', 'field', 'band', 'flux', 'fluxerr', 'zp', 'zpsys',
                 'status', 'expnum']
-    if opts.table == 'snforce':
+    if opts.table in ('snforce', 'snphotms'):
         photkeys.extend(['ccdnum', 'psf_nea', 'chip_sigsky',
                          'chip_zero_point', 'chip_zero_point_rms', 'snqual'])
         if opts.fake:
@@ -572,7 +572,7 @@ if __name__ == "__main__":
         if len(data) == 0:
             nempty += 1
             continue
-
+            
         # HACKS ----------------------------------------------------------
         # Get just the latest image ID for each exposure (expnum)
         # This counts on the data being ordered by (expnum, image_id).
