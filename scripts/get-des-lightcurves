@@ -212,10 +212,6 @@ def parse_args():
             snids = f.read().split()
     else:
         snids = args
-
-    if opts.table == 'snphotms' and not (opts.candtable == 'sncand_legacy' and opts.dbname == 'destest'):
-        print "snphotms is only compatible with the candtable sncand_legacy and the dbname destest."
-        sys.exit(1)
     
     if opts.candtable not in ["sncand", "sncand_legacy"]:
         print "candtable must be one of: sncand, sncand_legacy"
@@ -392,9 +388,9 @@ def build_snphotms_query(snid, fake_id):
 
     q = """
         SELECT
-            field, ccdnum, band, mjd_obs, counts, countserr, expnum, zp
+            field, ccdnum, band, mjd_obs, flux, flux_err, expnum, zp
         FROM
-            snphotms@destest
+            snphotms
         WHERE
             sncand_id = {0:d}
         ORDER BY
