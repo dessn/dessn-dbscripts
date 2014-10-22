@@ -39,7 +39,7 @@ try:
 except ImportError:
     from desdb import PasswordGetter  # old location in desdb
 
-TABLES = ['snforce', 'snobs']
+TABLES = ['snforce', 'snobs', 'snphotms']
 FORMATS = ['ascii', 'json', 'fits']
 SUFFIXES = {'ascii': 'dat', 'json': 'json'}  # Single LC formats
 SNOBS_BOXRAD = 1.08 / 3600.  # in degrees
@@ -384,6 +384,57 @@ def build_snforce_query(snid, fake_id):
 
     return fullq_template.format(addfields, q, addjoin)
 
+def build_snphotms_query(snid, fake_id):
+
+    q = """
+        SELECT
+            field, ccdnum, band, mjd_obs, flux, flux_err, expnum, zp
+        FROM
+            snphotms
+        WHERE
+            sncand_id = {0:d} AND exp_type='data'
+        ORDER BY
+            expnum
+        """.format(snid)
+
+    # Get more information from the snobsinfo and snquality
+    # tables.  This has to be implemented as a sub-query
+    # because we need to `left outer join` to the snobsinfo
+    # table based on *both* expnum and ccdnum and these values
+    # come from two different tables.
+    fullq_template = """
+        SELECT
+            ph.*,
+            oi.psf_nea,
+            oi.chip_sigsky,
+            oi.chip_zero_point,
+            oi.chip_zero_point_rms,
+            nvl(q.snqual, 0) as snqual{0}
+        FROM
+            ({1}) ph
+            LEFT OUTER JOIN snobsinfo oi
+                ON oi.expnum = ph.expnum
+                AND oi.tile = 0
+                AND oi.ccdnum = ph.ccdnum
+                AND oi.band = ph.band
+            LEFT OUTER JOIN snquality q
+                ON ph.expnum = q.expnum{2}
+        ORDER BY
+            ph.expnum
+        """
+
+    # If we're doing fakes, tack on some more info from FAKEIMG
+    addfields = ""
+    addjoin = ""
+    if fake_id != 0:
+        addfields = ", fi.truemag as fake_truemag"
+        addjoin = """
+            LEFT OUTER JOIN snfakeimg fi
+                ON fi.expnum = ph.expnum
+                AND fi.snfake_id = {0:d}""".format(fake_id)
+
+    return fullq_template.format(addfields, q, addjoin)
+
 
 def build_snobs_query(ra, dec):
 
@@ -470,11 +521,14 @@ if __name__ == "__main__":
     # specify order of keys in photometry tables
     photkeys = ['time', 'field', 'band', 'flux', 'fluxerr', 'zp', 'zpsys',
                 'status', 'expnum']
-    if opts.table == 'snforce':
+    if opts.table in ('snforce', 'snphotms'):
         photkeys.extend(['ccdnum', 'psf_nea', 'chip_sigsky',
                          'chip_zero_point', 'chip_zero_point_rms', 'snqual'])
         if opts.fake:
             photkeys.append('fake_truemag')
+
+    if opts.table == 'snphotms':
+        photkeys.remove('status')
 
     # FITS format: initialize containers to hold candidate data as we go.
     if opts.format == 'fits':
@@ -508,6 +562,8 @@ if __name__ == "__main__":
             q = build_snforce_query(cand['snid'], cand['fake_id'])
         elif opts.table == 'snobs':
             q = build_snobs_query(cand['ra'], cand['dec'])
+        elif opts.table == 'snphotms':
+            q = build_snphotms_query(cand['snid'], cand['fake_id'])
         if opts.verbose:
             print '\n', 78 * '-', '\n', dedent(q)
         data = conn.quick(q, array=True)
@@ -516,7 +572,7 @@ if __name__ == "__main__":
         if len(data) == 0:
             nempty += 1
             continue
-
+            
         # HACKS ----------------------------------------------------------
         # Get just the latest image ID for each exposure (expnum)
         # This counts on the data being ordered by (expnum, image_id).
