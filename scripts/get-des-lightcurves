@@ -177,6 +177,10 @@ def parse_args():
     parser.add_option("--candtype", default=0,
                       help="Get only candidates with this cand_type value, "
                       "or 'all' to disregard cand_type (default: 0)")
+    parser.add_option("--hasphot", default=False, action='store_true',
+                      help='Check that candidates are in photometry table ' 
+                      'before fetching light curves. Only return light curves '
+                      'for candidates with photometry.')
     parser.add_option("--infile", default=None,
                       help="Read SNIDs from this file instead of arguments.")
     parser.add_option("--mindate", default=None,
@@ -286,6 +290,11 @@ def build_cand_query(snids, opts):
         if len(snids) == 0:
             q += "    AND c.numepochs_ml >= 2\n"
 
+        if opts.hasphot:
+            # only fetch the rows that have photometry
+            q.replace('%s c' % opts.candtable, 
+                      '%s p JOIN %s c ON p.sncand_id = c.snid' % (opts.table,
+                                                                  opts.candtable))
     # Query for fake candidates:
     else:
         q = dedent(
