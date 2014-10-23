@@ -177,6 +177,10 @@ def parse_args():
     parser.add_option("--candtype", default=0,
                       help="Get only candidates with this cand_type value, "
                       "or 'all' to disregard cand_type (default: 0)")
+    parser.add_option("--hasphot", default=False, action='store_true',
+                      help='Check that candidates are in photometry table ' 
+                      'before fetching light curves. Only return light curves '
+                      'for candidates with photometry.')
     parser.add_option("--infile", default=None,
                       help="Read SNIDs from this file instead of arguments.")
     parser.add_option("--mindate", default=None,
@@ -237,12 +241,16 @@ def parse_args():
         print "Table must be one of: " + ",".join(TABLES)
         sys.exit(1)
 
+    if opts.hasphot and opts.table == 'snobs':
+        print 'Cannot stipulate hasphot when table==snobs.'
+        sys.exit(1)
+
     opts.format = opts.format.lower()
     if opts.format == 'csv': opts.format = 'ascii'  # backwards compatibility
     if opts.format not in FORMATS:
         print "Format must be one of:", ', '.join(FORMATS)
         sys.exit(1)
-
+    
     # Check output, depending on format
     if opts.format == 'fits':
         import fitsio   # fail immediately if fitsio not installed
@@ -266,6 +274,8 @@ def parse_args():
     return snids, opts
 
 
+
+
 # Query string builders ==================================================== #
 def build_cand_query(snids, opts):
 
@@ -283,7 +293,7 @@ def build_cand_query(snids, opts):
             WHERE
                 c.snfake_id=0
             """.format(opts.candtable))
-        if len(snids) == 0:
+        if len(snids) == 0 and not opts.candtable == 'sncand_legacy':
             q += "    AND c.numepochs_ml >= 2\n"
 
     # Query for fake candidates:
@@ -308,6 +318,10 @@ def build_cand_query(snids, opts):
             q += "    AND c.snfake_id >= {0:d}".format(opts.minfakeid)
         if opts.maxfakeid >= 0:
             q += "    AND c.snfake_id <= {0:d}".format(opts.maxfakeid)
+
+    if opts.hasphot:
+        # only fetch the rows that have photometry
+        q += "    AND c.snid IN (SELECT DISTINCT SNCAND_ID FROM %s)\n" % opts.table
 
     # Get just certain candidates?
     if len(snids) > 0:
@@ -535,7 +549,7 @@ if __name__ == "__main__":
     if opts.verbose:
         print 78 * '=', '\n', "candidate query:\n", 78 * '=', '\n', q, '\n'
     cands = conn.quick(q)
-
+    
     # specify order of keys in photometry tables
     photkeys = ['time', 'field', 'band', 'flux', 'fluxerr', 'zp', 'zpsys',
                 'status', 'expnum']
