@@ -118,6 +118,9 @@ def write_multiple_fits(meta_list, data_list, fname, header=None):
 
     if len(data_list) != len(meta_list):
         raise ValueError("length of data_list and meta_list must match")
+    if len(data_list) == 0:
+        raise ValueError("length of data_list is zero: can't write to FITS")
+
 
     # collect one giant array that will hold all of the data arrays.
     nrows = sum([len(d) for d in data_list])
@@ -717,8 +720,11 @@ if __name__ == "__main__":
 
     # for FITS format, write it all out.
     if opts.format == 'fits':
-        write_multiple_fits(meta_list, data_list, opts.output,
-                            header=primaryheader)
+        if len(data_list) == 0:
+            print "0 candidates with photometric data; FITS file not written."
+        else:
+            write_multiple_fits(meta_list, data_list, opts.output,
+                                header=primaryheader)
 
     elapsed = time.time() - t0
     print "\n{0:d} snids missing photometry were skipped".format(nempty)
