@@ -287,14 +287,9 @@ def build_cand_query(snids, opts):
             WHERE
                 c.snfake_id=0
             """.format(opts.candtable))
-        if len(snids) == 0:
+        if len(snids) == 0 and not opts.candtable == 'sncand_legacy':
             q += "    AND c.numepochs_ml >= 2\n"
 
-        if opts.hasphot:
-            # only fetch the rows that have photometry
-            q.replace('%s c' % opts.candtable, 
-                      '%s p JOIN %s c ON p.sncand_id = c.snid' % (opts.table,
-                                                                  opts.candtable))
     # Query for fake candidates:
     else:
         q = dedent(
@@ -317,6 +312,10 @@ def build_cand_query(snids, opts):
             q += "    AND c.snfake_id >= {0:d}".format(opts.minfakeid)
         if opts.maxfakeid >= 0:
             q += "    AND c.snfake_id <= {0:d}".format(opts.maxfakeid)
+
+    if opts.hasphot:
+        # only fetch the rows that have photometry
+        q += "    AND c.snid IN (SELECT DISTINCT SNCAND_ID FROM %s)\n" % opts.table
 
     # Get just certain candidates?
     if len(snids) > 0:
@@ -544,7 +543,7 @@ if __name__ == "__main__":
     if opts.verbose:
         print 78 * '=', '\n', "candidate query:\n", 78 * '=', '\n', q, '\n'
     cands = conn.quick(q)
-
+    
     # specify order of keys in photometry tables
     photkeys = ['time', 'field', 'band', 'flux', 'fluxerr', 'zp', 'zpsys',
                 'status', 'expnum']
