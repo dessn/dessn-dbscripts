@@ -14,7 +14,14 @@ SNFORCE and SNOBS tables have different meanings.
 For the SNFORCE table, when there are multiple rows with the same
 EXPNUM (exposure number from the EXPOSURE table), the row with the
 latest image_id (from the IMAGE table) is returned; others are
-discarded. This assumes that the latests image_id is the 'best'.
+discarded. This assumes that the latest image_id is the 'best'.
+
+SNPHOTMS table: This table is in the Y1LEGACY schema in the DESOPER
+database.  To query this table, you must connect to the database with
+credentials that have the Y1LEGACY schema. The '-u' and '-p' optional
+arguments can be used to override the default username and
+password. If you are querying for candidates (rather than requesting a
+specific set of candidate IDs), use '--candtable=sncand_legacy'.
 """
 
 import sys
@@ -147,6 +154,12 @@ def parse_args():
 
     parser = OptionParser(usage='%prog [options] [SNID ...]',
                           description=__doc__)
+
+    # Credentials
+    parser.add_option("-u", "--user", default=None,
+                      help="override username in .netrc")
+    parser.add_option("-p", "--password", default=None,
+                      help="override password in .netrc")
 
     # Which candidates?
     parser.add_option("-n", type="int", default=-1,
@@ -510,7 +523,9 @@ if __name__ == "__main__":
     user = PasswordGetter().user
 
     # Create a connection to the database.
-    conn = desdb.connect(dbname=opts.dbname)
+    conn = desdb.connect(dbname=opts.dbname,
+                         user=opts.user,
+                         password=opts.password)
 
     # Build and run candidate query
     q = build_cand_query(snids, opts)
