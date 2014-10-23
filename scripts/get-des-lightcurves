@@ -241,12 +241,16 @@ def parse_args():
         print "Table must be one of: " + ",".join(TABLES)
         sys.exit(1)
 
+    if opts.hasphot and opts.table == 'snobs':
+        print 'Cannot stipulate hasphot when table==snobs.'
+        sys.exit(1)
+
     opts.format = opts.format.lower()
     if opts.format == 'csv': opts.format = 'ascii'  # backwards compatibility
     if opts.format not in FORMATS:
         print "Format must be one of:", ', '.join(FORMATS)
         sys.exit(1)
-
+    
     # Check output, depending on format
     if opts.format == 'fits':
         import fitsio   # fail immediately if fitsio not installed
@@ -268,6 +272,8 @@ def parse_args():
     opts.bandnames = {'g': names[0],'r': names[1],'i': names[2],'z': names[3]}
 
     return snids, opts
+
+
 
 
 # Query string builders ==================================================== #
