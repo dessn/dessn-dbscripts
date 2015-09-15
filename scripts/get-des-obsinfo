@@ -43,7 +43,7 @@ master_head_template = """\
 TELESCOPE: CTIO
 SURVEY: DES      FILTERS: griz
 USER: username    HOST: hostname
-COMMENT: 'No comment'
+COMMENT: {0}
 PIXSIZE: 0.27
 PSF_UNIT: ARCSEC_FWHM
 #--------------------------------------------------------------------------
@@ -88,6 +88,8 @@ parser.add_option('-n', type='int', default=100,
                   '(default=100)')
 parser.add_option('-c', '--cache', action='store_true', default=False,
                   help='cache query results in ./{0}'.format(cache_filename))
+parser.add_option('--zpmin', type='float', default=False,
+                  help='minimum zeropoint')
 
 # Definitions for randomly selection positions
 bounds = {'C': (51.2, 55.6, -30.2, -26.0),
@@ -160,7 +162,7 @@ def point_within_quad(pointx, pointy, x1, y1, x2, y2, x3, y3, x4, y4):
 
 
 def main():
-
+    cmd = " ".join(sys.argv)
     options, args = parser.parse_args(sys.argv[1:])
     conn = desdb.connect(dbname=options.dbname)
     fname = options.outfile
@@ -168,7 +170,13 @@ def main():
         print "must specify output file."
         exit()
     out = open(fname, 'w')
-    out.write(master_head_template)
+    out.write(master_head_template.format(cmd))
+
+    if options.zpmin:
+        # Require minimum zeropoint for highly extincted measurements
+        q_zp = " and oi.chip_zero_point > {0:f}".format(options.zpmin)
+    else:
+        q_zp = " "
 
     query = """\
     SELECT DISTINCT
@@ -197,10 +205,10 @@ def main():
     WHERE
         oi.image_name_diff = fi.image_name_diff and 
         fi.image_name_diff = f.image_name_diff and
-        oi.tile = 0
+        oi.tile = 0 {0}
     ORDER BY
         field, oi.ccdnum, oi.nite, oi.band
-    """
+    """.format(q_zp)
 
     # Run the query or load pre-saved results.
     if os.path.exists(cache_filename):
@@ -347,11 +355,11 @@ def main():
                         idx.append(np.flatnonzero(fielddata['band']==band)[0])
                     except:
                         idx.append(-1)  # -1 indicates no image in given band
-                zpstr = ["%6.3f" % fielddata['chip_zero_point'][i]
-                         if i != -1 else "0.0" for i in idx]
+                zpstr = ["%6.3f" % fielddata['chip_zero_point'][k]
+                         if k != -1 else "0.0" for k in idx]
                 zpstr = " ".join(zpstr)
-                skystr = ["%7.2f" % fielddata['chip_sigsky_template'][i]
-                          if i != -1 else "0.0" for i in idx]
+                skystr = ["%7.2f" % fielddata['chip_sigsky_template'][k]
+                          if k != -1 else "0.0" for k in idx]
                 skystr = " ".join(skystr)
 
                 out.write(field_template.format(field, str(ccds),
